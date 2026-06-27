@@ -9,9 +9,9 @@
 | 1 | 语音记事 → 确认 | ✅ | Docker PG + pgvector 已实跑；memory add/search/getAll 通过 |
 | 2 | "记住这个放这了" → 截帧+证据 | ⏳ | 服务端真实 E2E 已通过：MiniCPM-V 描述 + evidence URL + memory 写入；还需 App 设备端手动验证 |
 | 3 | "钥匙放哪" → 位置+证据截图 | ⏳ | 真实检索已返回视觉记忆和 evidenceUri；记忆列表/对话页真实图片加载还需设备端验证 |
-| 4 | 日历提醒推送 | ⏳ | bootstrapApp 已接 CalendarPerceiver → ReminderScheduler；还需设备权限和通知实测 |
+| 4 | 日历提醒推送 | ⏳ | bootstrapApp 已接 CalendarPerceiver → ReminderScheduler；Android 已修复 Expo Calendar legacy API 启动错误；还需真实日历事件、通知和 TTS 实测 |
 | 5 | 不确定时说"我不记得" | ✅ | LLM search 无 facts prompt 明确禁止编造；根/服务端 TypeScript 通过 |
-| 6 | 全程免手操作(唤醒词) | ⏳ | JS 已接 native KWS/Speaker API 且不再自动通过；Android native build 已通过；还需设备验证 KWS/Speaker/STT 行为 |
+| 6 | 全程免手操作(唤醒词) | ⏳ | Android emulator 已验证 KWS native 初始化、模型绝对路径和 audio feeder 持续喂样本；还需真实唤醒词、Speaker/STT 行为验证 |
 | 7 | iOS + Android 双平台 | ⏳ | Android `:app:assembleDebug` 已通过；iOS native build 仍被本机 Xcode 缺失组件阻塞；双平台设备实测未完成 |
 
 ---
@@ -67,12 +67,15 @@
 - [x] Android sherpa-onnx KWS + Speaker ID native debug 构建验证：`JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew :app:assembleDebug` 通过
 - [x] 添加 KWS/Speaker/SenseVoice 模型下载脚本和未提交资产目录
 - [x] 设备端模型路径自检：ASR/KWS/Speaker 初始化前检查 `documentDirectory/sherpa-onnx/...` 必需文件，设置页显示缺失清单
+- [x] `src/voice/stt.ts` / `src/voice/tts.ts` 从 `expo-av` 迁移到 `expo-audio`，Android 启动不再触发 `LazyKType` 崩溃
 - [ ] 执行模型下载并拷贝到设备 `documentDirectory/sherpa-onnx/`，确认设置页模型检查全绿
   - [x] 检查 Hugging Face CLI / `sherpa-onnx-cli` 可用性：本地 `.venv-sherpa-tools` 提供 `hf` 和 `sherpa-onnx-cli`
   - [x] 下载 SenseVoice、KWS、Speaker ID 模型到 ignored `app-models/sherpa-onnx/`：模型目录约 272MB
   - [x] 生成 KWS `keywords.txt`：`嘿魔戈 @HEY_MOGE`
   - [x] 校验本地模型文件非空：ASR `model.int8.onnx`/`tokens.txt`、KWS encoder/decoder/joiner/tokens/keywords、Speaker `model.onnx`
-  - [ ] 拷贝到 Android 设备并确认设置页模型检查全绿
+  - [x] 拷贝到 Android emulator app 私有目录：`run-as com.anonymous.superlooiapp du -sh files/sherpa-onnx` 为 271M
+  - [x] Android KWS native 初始化验证：日志显示 `Model dir: /data/user/0/com.anonymous.superlooiapp/files/sherpa-onnx/kws/looi/`，encoder/decoder/joiner/tokens/keywords 均 `exists: true`
+  - [ ] 设置页模型检查全绿 UI 验证
 - [x] 调研 RN sherpa 候选包并记录接入风险到 `docs/phase1-native-sherpa-options.md`
 - [x] 引入 `@siteed/sherpa-onnx.rn` 并创建 `src/voice/sherpa-adapter.ts` 统一 ASR/KWS/Speaker 调用
 - [x] `src/voice/wakeword.ts` 接 `@siteed/sherpa-onnx.rn` KWS adapter，支持由音频采集层喂 PCM 样本
@@ -84,7 +87,7 @@
 - [x] 常驻 KWS 音频采集 feeder：使用 `@siteed/audio-studio` 采集 16k mono float PCM 并调用 `wakewordService.acceptSamples()`
 - [x] `@siteed/audio-studio` Expo config plugin 已用最小权限接入，提供麦克风权限并关闭后台录音/通知/蓝牙/电话权限
 - [x] KWS feeder 已处理运行中偏好切换、float PCM payload fallback、队列上限，避免静默断流和无限堆积
-- [ ] 常驻 KWS 音频采集 feeder 设备验证：确认与 STT 录音互斥切换、唤醒后恢复监听
+- [ ] 常驻 KWS 音频采集 feeder 设备验证：Android emulator 已确认持续 `acceptWaveform`；还需确认与 STT 录音互斥切换、唤醒后恢复监听
 - [x] `src/voice/stt.ts` 接设备端 SenseVoice ASR adapter，移除服务器 STT HTTP 调用
 - [x] `expo-file-system` 直接依赖已声明，用于设备端模型文件自检
 - [x] `pnpm exec expo prebuild --clean --no-install` 生成 iOS/Android 原生工程通过
@@ -96,6 +99,7 @@
 - [x] 创建 `src/core/app-bootstrap.ts`
 - [x] `app/_layout.tsx` 调用 `bootstrapApp()`
 - [x] calendar observation 接到 `reminderScheduler.processCalendarObservation()`
+- [x] Expo 56 下 CalendarPerceiver 改用 `expo-calendar/legacy`，并在无本地日历源时跳过 `getEventsAsync([])`，Android 启动不再报 deprecated legacy API / empty calendarIds 错误
 - [ ] 设备日历事件 + 本地通知 + TTS 实测
 
 ## Step 9: 测试
@@ -109,8 +113,9 @@
 - [x] `pnpm exec expo config --type public`
 - [x] `cd server && pnpm build`
 - [x] `cd server && pnpm test`
-- [x] `pnpm exec expo prebuild --clean --no-install`：新增 `expo-file-system` 直接依赖后重新生成原生工程通过
+- [x] `pnpm exec expo prebuild --clean --no-install`：新增 `expo-file-system` 直接依赖、`expo-audio` 迁移后重新生成原生工程通过
 - [x] `cd android && JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew :app:assembleDebug`
+- [x] Android emulator 启动日志验证：JS bundle 正常加载，Sherpa JNI 加载，KWS 初始化完成且持续接收音频样本
 - [ ] APP 手动冒烟测试：纯语音、视觉记事、检索+证据、日历提醒、KWS+声纹、iOS+Android
 
 ## Step 10: 清理 + 验收

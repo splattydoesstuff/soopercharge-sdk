@@ -28,6 +28,14 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Looi to record voice commands",
+          "recordAudioAndroid": true,
+          "enableBackgroundRecording": false
+        }
+      ],
       "@siteed/sherpa-onnx.rn/app.plugin",
       [
         "@siteed/audio-studio",

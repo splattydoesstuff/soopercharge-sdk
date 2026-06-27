@@ -1,4 +1,4 @@
-import { Audio } from "expo-av";
+import { createAudioPlayer, type AudioPlayer } from "expo-audio";
 
 const MINIMAX_TTS_URL = "https://api.minimax.chat/v1/t2a_v2";
 
@@ -14,7 +14,7 @@ interface TTSOptions {
 export class TTSService {
   private apiKey: string;
   private groupId: string;
-  private sound: Audio.Sound | null = null;
+  private player: AudioPlayer | null = null;
   private isPlaying = false;
 
   constructor() {
@@ -92,23 +92,22 @@ export class TTSService {
 
       // Create audio from base64
       const audioUri = `data:audio/mp3;base64,${audioBase64}`;
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: audioUri },
-        { shouldPlay: true }
-      );
+      const player = createAudioPlayer({ uri: audioUri }, { updateInterval: 250 });
 
-      this.sound = sound;
+      this.player = player;
       this.isPlaying = true;
+      player.play();
 
       // Wait for playback to finish
       return new Promise<void>((resolve) => {
-        sound.setOnPlaybackStatusUpdate((status) => {
-          if (status.isLoaded && status.didJustFinish) {
+        const interval = setInterval(() => {
+          if (!player.playing && player.currentStatus.didJustFinish) {
+            clearInterval(interval);
             this.isPlaying = false;
             this.cleanup();
             resolve();
           }
-        });
+        }, 250);
       });
     } catch (error) {
       this.isPlaying = false;
@@ -121,9 +120,9 @@ export class TTSService {
    * Stop current playback
    */
   async stop(): Promise<void> {
-    if (this.sound) {
+    if (this.player) {
       try {
-        await this.sound.stopAsync();
+        this.player.pause();
       } catch {
         // Already stopped
       }
@@ -140,13 +139,13 @@ export class TTSService {
   }
 
   private async cleanup(): Promise<void> {
-    if (this.sound) {
+    if (this.player) {
       try {
-        await this.sound.unloadAsync();
+        this.player.remove();
       } catch {
         // Ignore cleanup errors
       }
-      this.sound = null;
+      this.player = null;
     }
   }
 }

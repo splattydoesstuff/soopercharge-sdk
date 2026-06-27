@@ -1,6 +1,6 @@
 import { BasePerceiver } from "../core/perceiver";
 import { createObservation } from "../core/observation";
-import * as Calendar from "expo-calendar";
+import * as Calendar from "expo-calendar/legacy";
 
 interface CalendarEvent {
   id: string;
@@ -52,6 +52,9 @@ export class CalendarPerceiver extends BasePerceiver {
     try {
       const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
       const calendarIds = calendars.map((c) => c.id);
+      if (calendarIds.length === 0) {
+        return;
+      }
 
       const now = new Date();
       const lookAhead = new Date(now.getTime() + this.reminderMinutesBefore * 60 * 1000);

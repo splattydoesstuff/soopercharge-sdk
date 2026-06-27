@@ -1,4 +1,10 @@
-import { Audio } from "expo-av";
+import {
+  AudioModule,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  type AudioRecorder,
+} from "expo-audio";
 import { sherpaVoiceAdapter } from "./sherpa-adapter";
 
 /**
@@ -6,7 +12,7 @@ import { sherpaVoiceAdapter } from "./sherpa-adapter";
  * Phase 1 target: device-side sherpa-onnx SenseVoice ASR.
  */
 export class STTService {
-  private recording: Audio.Recording | null = null;
+  private recording: AudioRecorder | null = null;
   private isRecording = false;
 
   /**
@@ -14,15 +20,19 @@ export class STTService {
    */
   async startRecording(): Promise<void> {
     try {
-      await Audio.requestPermissionsAsync();
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      const permission = await requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        throw new Error("Microphone permission denied");
+      }
+
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
       });
 
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
+      const recording = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
+      await recording.prepareToRecordAsync();
+      recording.record();
 
       this.recording = recording;
       this.isRecording = true;
@@ -49,10 +59,10 @@ export class STTService {
     }
 
     try {
-      await this.recording.stopAndUnloadAsync();
+      await this.recording.stop();
       this.isRecording = false;
 
-      const uri = this.recording.getURI();
+      const uri = this.recording.uri;
       this.recording = null;
 
       if (!uri) {
@@ -74,7 +84,7 @@ export class STTService {
   async cancel(): Promise<void> {
     if (this.recording) {
       try {
-        await this.recording.stopAndUnloadAsync();
+        await this.recording.stop();
       } catch {
         // Ignore
       }

@@ -3,7 +3,11 @@ import SherpaOnnx, {
   type KWSModelConfig,
   type SpeakerIdModelConfig,
 } from "@siteed/sherpa-onnx.rn";
-import { checkSherpaModelFiles, formatSherpaModelError } from "./sherpa-models";
+import {
+  checkSherpaModelFiles,
+  formatSherpaModelError,
+  resolveSherpaModelDir,
+} from "./sherpa-models";
 
 const DEFAULT_STT_MODEL_DIR = "sherpa-onnx/asr/sensevoice";
 const DEFAULT_STT_MODEL_FILE = "model.int8.onnx";
@@ -59,6 +63,13 @@ function getSpeakerRequiredFiles(config: SpeakerIdModelConfig): string[] {
   return [config.modelFile || DEFAULT_SPEAKER_MODEL_FILE];
 }
 
+function withResolvedModelDir<T extends { modelDir: string }>(config: T): T {
+  return {
+    ...config,
+    modelDir: resolveSherpaModelDir(config.modelDir),
+  };
+}
+
 export function getSherpaAsrConfig(): AsrModelConfig {
   return {
     modelDir: env("EXPO_PUBLIC_SHERPA_STT_MODEL_DIR", DEFAULT_STT_MODEL_DIR),
@@ -109,8 +120,9 @@ export class SherpaVoiceAdapter {
 
   async initializeAsr(config: AsrModelConfig = getSherpaAsrConfig()): Promise<void> {
     if (this.asrReady) return;
-    await this.assertModelFilesReady("asr", config.modelDir, getAsrRequiredFiles(config));
-    const result = await SherpaOnnx.ASR.initialize(config);
+    const nativeConfig = withResolvedModelDir(config);
+    await this.assertModelFilesReady("asr", nativeConfig.modelDir, getAsrRequiredFiles(nativeConfig));
+    const result = await SherpaOnnx.ASR.initialize(nativeConfig);
     if (!result.success) {
       throw new Error(result.error || "Sherpa ASR initialization failed");
     }
@@ -128,8 +140,9 @@ export class SherpaVoiceAdapter {
 
   async initializeKws(config: KWSModelConfig = getSherpaKwsConfig()): Promise<void> {
     if (this.kwsReady) return;
-    await this.assertModelFilesReady("kws", config.modelDir, getKwsRequiredFiles(config));
-    const result = await SherpaOnnx.KWS.init(config);
+    const nativeConfig = withResolvedModelDir(config);
+    await this.assertModelFilesReady("kws", nativeConfig.modelDir, getKwsRequiredFiles(nativeConfig));
+    const result = await SherpaOnnx.KWS.init(nativeConfig);
     if (!result.success) {
       throw new Error(result.error || "Sherpa KWS initialization failed");
     }
@@ -145,12 +158,13 @@ export class SherpaVoiceAdapter {
     config: SpeakerIdModelConfig = getSherpaSpeakerConfig()
   ): Promise<void> {
     if (this.speakerReady) return;
+    const nativeConfig = withResolvedModelDir(config);
     await this.assertModelFilesReady(
       "speaker",
-      config.modelDir,
-      getSpeakerRequiredFiles(config)
+      nativeConfig.modelDir,
+      getSpeakerRequiredFiles(nativeConfig)
     );
-    const result = await SherpaOnnx.SpeakerId.init(config);
+    const result = await SherpaOnnx.SpeakerId.init(nativeConfig);
     if (!result.success) {
       throw new Error(result.error || "Sherpa Speaker ID initialization failed");
     }
@@ -211,11 +225,19 @@ export class SherpaVoiceAdapter {
     const speakerConfig = getSherpaSpeakerConfig();
 
     return {
-      asr: await checkSherpaModelFiles("asr", asrConfig.modelDir, getAsrRequiredFiles(asrConfig)),
-      kws: await checkSherpaModelFiles("kws", kwsConfig.modelDir, getKwsRequiredFiles(kwsConfig)),
+      asr: await checkSherpaModelFiles(
+        "asr",
+        resolveSherpaModelDir(asrConfig.modelDir),
+        getAsrRequiredFiles(asrConfig)
+      ),
+      kws: await checkSherpaModelFiles(
+        "kws",
+        resolveSherpaModelDir(kwsConfig.modelDir),
+        getKwsRequiredFiles(kwsConfig)
+      ),
       speaker: await checkSherpaModelFiles(
         "speaker",
-        speakerConfig.modelDir,
+        resolveSherpaModelDir(speakerConfig.modelDir),
         getSpeakerRequiredFiles(speakerConfig)
       ),
     };
