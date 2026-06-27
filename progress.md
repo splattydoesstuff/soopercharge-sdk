@@ -79,6 +79,7 @@
 - [x] 调研 RN sherpa 候选包并记录接入风险到 `docs/phase1-native-sherpa-options.md`
 - [x] 引入 `@siteed/sherpa-onnx.rn` 并创建 `src/voice/sherpa-adapter.ts` 统一 ASR/KWS/Speaker 调用
 - [x] `src/voice/wakeword.ts` 接 `@siteed/sherpa-onnx.rn` KWS adapter，支持由音频采集层喂 PCM 样本
+- [x] 设置页唤醒词开关从 Phase 1.5 禁用态改为 Phase 1 正式可切换，并加入 root anti-regression 门禁防止回退
 - [x] `src/voice/speaker-id.ts` 接 `@siteed/sherpa-onnx.rn` SpeakerId，支持样本/文件 embedding 注册与验证
 - [x] VoicePerceiver 使用当前命令录音文件做 owner 声纹验证，通过后才转写和处理命令
 - [x] 设置页提供本次会话 owner 声纹录入入口，录音文件写入 SpeakerId manager

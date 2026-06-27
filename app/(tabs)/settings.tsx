@@ -321,12 +321,11 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.switchRow}>
               <Text style={[styles.label, { color: isDark ? "#D1D5DB" : "#374151" }]}>
-                唤醒词（Phase 1.5）
+                唤醒词
               </Text>
               <Switch
                 value={preferences.wakeWordEnabled}
                 onValueChange={(v) => updatePreferences({ wakeWordEnabled: v })}
-                disabled
               />
             </View>
           </View>

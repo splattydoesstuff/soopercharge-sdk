@@ -52,6 +52,11 @@ assertPresent("src/perceivers/voice-perceiver.ts", [
   /evidenceUri = result\.evidenceUri/,
 ]);
 
+assertAbsent("app/(tabs)/settings.tsx", [
+  /Phase 1\.5/,
+  /唤醒词（Phase 1\.5）/,
+]);
+
 assertPresent("server/tests/observe.test.ts", [
   /infer\?: boolean/,
   /assert\.equal\(stored\[0\]\.options\?\.infer, false\)/,
