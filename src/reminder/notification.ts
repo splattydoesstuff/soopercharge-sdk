@@ -24,6 +24,14 @@ export async function requestNotificationPermissions(): Promise<boolean> {
 }
 
 /**
+ * Check notification permissions without showing a system prompt.
+ */
+export async function hasNotificationPermissions(): Promise<boolean> {
+  const { status } = await Notifications.getPermissionsAsync();
+  return status === "granted";
+}
+
+/**
  * Schedule a local notification
  */
 export async function scheduleNotification(
@@ -31,6 +39,12 @@ export async function scheduleNotification(
   body: string,
   triggerSeconds?: number
 ): Promise<string> {
+  const canNotify = await hasNotificationPermissions();
+  if (!canNotify) {
+    console.warn("[Notifications] Skipping notification because permission is not granted");
+    return "skipped:no-notification-permission";
+  }
+
   const trigger = triggerSeconds
     ? {
         type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,

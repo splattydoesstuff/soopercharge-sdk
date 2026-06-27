@@ -2,30 +2,39 @@ import { useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { cameraPerceiver } from "../perceivers/camera-perceiver";
+import { isAndroidEmulator } from "../core/runtime-profile";
 
 const CAPTURE_INTERVAL_MS = 3000;
+const CAMERA_START_DELAY_MS = 1500;
 
 export function CameraFrameFeeder() {
   const cameraRef = useRef<CameraView>(null);
-  const [permission, requestPermission] = useCameraPermissions();
-  const [ready, setReady] = useState(false);
+  const readyRef = useRef(false);
+  const [permission] = useCameraPermissions();
+  const [canStartCamera, setCanStartCamera] = useState(false);
+  const skipCamera = isAndroidEmulator();
 
   useEffect(() => {
-    if (!permission) return;
-    if (!permission.granted && permission.canAskAgain) {
-      requestPermission().catch((error) => {
-        console.warn("[CameraFrameFeeder] Camera permission request failed:", error);
-      });
+    if (skipCamera) {
+      console.log("[CameraFrameFeeder] Skipping camera preview on Android emulator");
+      return;
     }
-  }, [permission, requestPermission]);
+
+    const timer = setTimeout(() => setCanStartCamera(true), CAMERA_START_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [skipCamera]);
 
   useEffect(() => {
-    if (!permission?.granted || !ready) return;
+    if (skipCamera || !canStartCamera) return;
+    if (!permission?.granted) return;
 
     let cancelled = false;
+    cameraPerceiver.start().catch((error) => {
+      console.warn("[CameraFrameFeeder] Failed to start camera perceiver:", error);
+    });
 
     const captureFrame = async () => {
-      if (cancelled || !cameraRef.current) return;
+      if (cancelled || !readyRef.current || !cameraRef.current) return;
 
       try {
         const photo = await cameraRef.current.takePictureAsync({
@@ -48,10 +57,13 @@ export function CameraFrameFeeder() {
     return () => {
       cancelled = true;
       clearInterval(interval);
+      cameraPerceiver.stop().catch((error) => {
+        console.warn("[CameraFrameFeeder] Failed to stop camera perceiver:", error);
+      });
     };
-  }, [permission?.granted, ready]);
+  }, [canStartCamera, permission?.granted, skipCamera]);
 
-  if (!permission?.granted) {
+  if (skipCamera || !canStartCamera || !permission?.granted) {
     return null;
   }
 
@@ -61,7 +73,9 @@ export function CameraFrameFeeder() {
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
         facing="back"
-        onCameraReady={() => setReady(true)}
+        onCameraReady={() => {
+          readyRef.current = true;
+        }}
       />
     </View>
   );

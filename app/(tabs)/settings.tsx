@@ -4,28 +4,29 @@ import {
   View,
   Text,
   Switch,
-  ScrollView,
   useColorScheme,
   Pressable,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import * as Calendar from "expo-calendar/legacy";
+import * as FileSystem from "expo-file-system/legacy";
 import { useUserStore } from "@/src/store/user";
 import { checkServerHealth, observeService } from "@/src/server-api/client";
 import { createObservation } from "@/src/core/observation";
 import { cameraPerceiver } from "@/src/perceivers/camera-perceiver";
 import { calendarPerceiver } from "@/src/perceivers/calendar-perceiver";
 import { useConversationStore } from "@/src/store/conversation";
-import { speakerIdService } from "@/src/voice/speaker-id";
-import { sttService } from "@/src/voice/stt";
-import { sherpaVoiceAdapter } from "@/src/voice/sherpa-adapter";
 import {
   feedSamplesSequentially,
   loadPcm16WavAssetSamples,
 } from "@/src/voice/diagnostic-audio";
-import { kwsAudioFeeder } from "@/src/voice/kws-audio-feeder";
 import { reminderScheduler } from "@/src/reminder/reminder-scheduler";
-import type { SherpaModelCheck } from "@/src/voice/sherpa-models";
+import { checkAllSherpaModelReadiness, type SherpaModelCheck } from "@/src/voice/sherpa-models";
+import {
+  downloadMissingSherpaModels,
+  type SherpaModelDownloadProgress,
+} from "@/src/voice/sherpa-model-download";
+import { DeviceShell } from "@/src/ui/DeviceShell";
+import { looiTheme } from "@/src/ui/looi-theme";
 
 const CALENDAR_SMOKE_TITLE = "Phase 1 真实日历提醒诊断";
 const CALENDAR_SMOKE_CALENDAR_TITLE = "LOOI Phase 1 Diagnostics";
@@ -40,6 +41,28 @@ type SherpaModelStatus = {
 };
 
 type Preferences = ReturnType<typeof useUserStore.getState>["preferences"];
+type KwsDiagnosticResult = {
+  detected?: boolean;
+  keyword?: string;
+};
+
+async function getVoiceServices() {
+  const [{ sttService }, { speakerIdService }] = await Promise.all([
+    import("@/src/voice/stt"),
+    import("@/src/voice/speaker-id"),
+  ]);
+
+  return { sttService, speakerIdService };
+}
+
+async function getKwsServices() {
+  const [{ sherpaVoiceAdapter }, { kwsAudioFeeder }] = await Promise.all([
+    import("@/src/voice/sherpa-adapter"),
+    import("@/src/voice/kws-audio-feeder"),
+  ]);
+
+  return { sherpaVoiceAdapter, kwsAudioFeeder };
+}
 
 type SettingsUiState = {
   enrollment: {
@@ -77,6 +100,8 @@ type SettingsUiState = {
   models: {
     status: SherpaModelStatus | null;
     checking: boolean;
+    downloading: boolean;
+    downloadProgress: SherpaModelDownloadProgress | null;
     error: string | null;
   };
 };
@@ -105,7 +130,11 @@ type SettingsUiAction =
   | { type: "calendar-smoke/failed"; error: string }
   | { type: "models/checking" }
   | { type: "models/checked"; status: SherpaModelStatus }
-  | { type: "models/failed"; error: string };
+  | { type: "models/failed"; error: string }
+  | { type: "models/download-started" }
+  | { type: "models/download-progress"; progress: SherpaModelDownloadProgress }
+  | { type: "models/download-succeeded"; status: SherpaModelStatus }
+  | { type: "models/download-failed"; error: string };
 
 const initialSettingsUiState: SettingsUiState = {
   enrollment: {
@@ -143,6 +172,8 @@ const initialSettingsUiState: SettingsUiState = {
   models: {
     status: null,
     checking: false,
+    downloading: false,
+    downloadProgress: null,
     error: null,
   },
 };
@@ -265,12 +296,58 @@ function settingsUiReducer(
     case "models/checked":
       return {
         ...state,
-        models: { status: action.status, checking: false, error: null },
+        models: {
+          ...state.models,
+          status: action.status,
+          checking: false,
+          error: null,
+        },
       };
     case "models/failed":
       return {
         ...state,
         models: { ...state.models, checking: false, error: action.error },
+      };
+    case "models/download-started":
+      return {
+        ...state,
+        models: {
+          ...state.models,
+          downloading: true,
+          downloadProgress: null,
+          error: null,
+        },
+      };
+    case "models/download-progress":
+      return {
+        ...state,
+        models: {
+          ...state.models,
+          downloading: true,
+          downloadProgress: action.progress,
+          error: null,
+        },
+      };
+    case "models/download-succeeded":
+      return {
+        ...state,
+        models: {
+          status: action.status,
+          checking: false,
+          downloading: false,
+          downloadProgress: null,
+          error: null,
+        },
+      };
+    case "models/download-failed":
+      return {
+        ...state,
+        models: {
+          ...state.models,
+          checking: false,
+          downloading: false,
+          error: action.error,
+        },
       };
     default:
       return state;
@@ -320,7 +397,13 @@ export default function SettingsScreen() {
     result: calendarSmokeResult,
     error: calendarSmokeError,
   } = uiState.calendarSmoke;
-  const { status: modelStatus, checking: checkingModels, error: modelError } = uiState.models;
+  const {
+    status: modelStatus,
+    checking: checkingModels,
+    downloading: downloadingModels,
+    downloadProgress: modelDownloadProgress,
+    error: modelError,
+  } = uiState.models;
   const addConversationMessage = useConversationStore((state) => state.addMessage);
 
   const checkConnection = useCallback(async () => {
@@ -333,26 +416,58 @@ export default function SettingsScreen() {
   }, [checkConnection]);
 
   const checkSherpaModels = useCallback(async () => {
+    if (uiState.models.downloading) return;
     dispatchUi({ type: "models/checking" });
 
     try {
-      const status = await sherpaVoiceAdapter.checkModelReadiness();
+      const status = await checkAllSherpaModelReadiness();
       dispatchUi({ type: "models/checked", status });
     } catch (error) {
       console.error("[Settings] Failed to check sherpa models:", error);
       dispatchUi({ type: "models/failed", error: "模型检查失败" });
     }
-  }, []);
+  }, [uiState.models.downloading]);
+
+  const downloadSherpaModels = useCallback(async () => {
+    if (uiState.models.downloading || uiState.models.checking) return;
+
+    dispatchUi({ type: "models/download-started" });
+    try {
+      const status = await downloadMissingSherpaModels((progress) => {
+        dispatchUi({ type: "models/download-progress", progress });
+      });
+      dispatchUi({ type: "models/download-succeeded", status });
+    } catch (error) {
+      console.error("[Settings] Sherpa model download failed:", error);
+      dispatchUi({
+        type: "models/download-failed",
+        error: error instanceof Error ? error.message : "模型下载失败",
+      });
+    }
+  }, [uiState.models.checking, uiState.models.downloading]);
 
   useEffect(() => {
     checkSherpaModels();
   }, [checkSherpaModels]);
 
   useEffect(() => {
-    speakerIdService
-      .refreshEnrollmentStatus()
-      .then(setVoiceEnrolled)
-      .catch(() => setVoiceEnrolled(false));
+    let cancelled = false;
+    getVoiceServices()
+      .then(({ speakerIdService }) => speakerIdService.getStoredEnrollmentStatus())
+      .then((enrolled) => {
+        if (!cancelled) {
+          setVoiceEnrolled(enrolled);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setVoiceEnrolled(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [setVoiceEnrolled]);
 
   const startEnrollment = useCallback(async () => {
@@ -362,6 +477,7 @@ export default function SettingsScreen() {
     setVoiceState("listening");
 
     try {
+      const { sttService } = await getVoiceServices();
       await sttService.startRecording();
     } catch (error) {
       console.error("[Settings] Failed to start speaker enrollment:", error);
@@ -377,6 +493,7 @@ export default function SettingsScreen() {
     setVoiceState("verifying");
 
     try {
+      const { sttService, speakerIdService } = await getVoiceServices();
       const audioUri = await sttService.stopRecording();
       await speakerIdService.enrollFromFile(audioUri);
       setVoiceEnrolled(true);
@@ -386,6 +503,7 @@ export default function SettingsScreen() {
       dispatchUi({ type: "enrollment/failed", error: "声纹保存失败" });
       setVoiceEnrolled(false);
     } finally {
+      const { sttService } = await getVoiceServices();
       await sttService.resumeWakewordFeederIfPaused();
       setVoiceState("sleeping");
     }
@@ -405,6 +523,7 @@ export default function SettingsScreen() {
     setVoiceState("listening");
 
     try {
+      const { sttService } = await getVoiceServices();
       await sttService.startRecording();
     } catch (error) {
       console.error("[Settings] Failed to start voice smoke:", error);
@@ -428,13 +547,15 @@ export default function SettingsScreen() {
     setVoiceState("verifying");
 
     try {
+      const { sttService, speakerIdService } = await getVoiceServices();
       const audioUri = await sttService.stopRecording();
       await speakerIdService.enrollFromFile(audioUri);
       const verified = await speakerIdService.verifyFile(audioUri);
       const transcript = await sttService.transcribeFile(audioUri);
+      const audioSummary = await getAudioFileSummary(audioUri);
       setVoiceEnrolled(true);
       const result = [
-        `audio=${audioUri}`,
+        `audio=${audioSummary}`,
         `speaker=${verified ? "pass" : "fail"}`,
         `stt=${transcript || "(empty)"}`,
       ].join(" | ");
@@ -444,6 +565,7 @@ export default function SettingsScreen() {
       console.error("[Settings] Voice smoke failed:", error);
       dispatchUi({ type: "voice-smoke/failed", error: "语音诊断失败" });
     } finally {
+      const { sttService } = await getVoiceServices();
       await sttService.resumeWakewordFeederIfPaused();
       setVoiceState("sleeping");
     }
@@ -463,6 +585,7 @@ export default function SettingsScreen() {
     setVoiceState("listening");
 
     try {
+      const { sttService, speakerIdService } = await getVoiceServices();
       await sttService.startRecording();
       await new Promise((resolve) => setTimeout(resolve, 2200));
       dispatchUi({ type: "speaker-verify/start-running" });
@@ -476,9 +599,10 @@ export default function SettingsScreen() {
       if (nonOwnerVerified) {
         throw new Error("Diagnostic non-owner sample was accepted");
       }
+      const audioSummary = await getAudioFileSummary(audioUri);
       setVoiceEnrolled(enrolled);
       const result = [
-        `audio=${audioUri}`,
+        `audio=${audioSummary}`,
         `enrolled=${enrolled ? "yes" : "no"}`,
         `owner=${verified ? "pass" : "fail"}`,
         `nonOwner=${nonOwnerVerified ? "accept" : "reject"}`,
@@ -489,6 +613,7 @@ export default function SettingsScreen() {
       console.error("[Settings] Speaker verify failed:", error);
       dispatchUi({ type: "speaker-verify/failed", error: "声纹验证失败" });
     } finally {
+      const { sttService } = await getVoiceServices();
       await sttService.resumeWakewordFeederIfPaused();
       setVoiceState("sleeping");
     }
@@ -547,6 +672,7 @@ export default function SettingsScreen() {
 
     dispatchUi({ type: "kws-smoke/start-running" });
 
+    const { sherpaVoiceAdapter, kwsAudioFeeder } = await getKwsServices();
     const shouldRestoreFeeder = kwsAudioFeeder.isRunning && preferences.wakeWordEnabled;
     try {
       const [{ samples, sampleRate }] = await Promise.all([
@@ -557,7 +683,9 @@ export default function SettingsScreen() {
         await kwsAudioFeeder.stop();
       }
       await sherpaVoiceAdapter.resetKwsStream();
-      const result = await runKwsDiagnosticSamples(samples, sampleRate);
+      const result = await runKwsDiagnosticSamples(samples, sampleRate, (chunk) =>
+        sherpaVoiceAdapter.acceptKwsSamples(chunk, sampleRate)
+      );
       const summary = [
         `detected=${result.detected ? "yes" : "no"}`,
         `keyword=${result.keyword || "(empty)"}`,
@@ -648,8 +776,25 @@ export default function SettingsScreen() {
   }, [calendarSmokeRunning]);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: isDark ? "#111827" : "#F9FAFB" }]}>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+    <DeviceShell title="设置" eyebrow="DEVICE PANEL">
+      <View style={styles.summaryGrid}>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>主人身份</Text>
+          <Text style={styles.summaryValue}>{voiceEnrolled ? "声纹已注册" : "等待声纹"}</Text>
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>服务器</Text>
+          <Text style={[styles.summaryValue, serverConnected ? styles.okText : styles.errorTone]}>
+            {serverConnected ? "已连接" : "未连接"}
+          </Text>
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>模型</Text>
+          <Text style={styles.summaryValue}>{modelStatus ? "已检查" : "未检查"}</Text>
+        </View>
+      </View>
+
+      <View style={styles.capabilityGrid}>
         <ProfileSection
           isDark={isDark}
           name={name}
@@ -676,14 +821,19 @@ export default function SettingsScreen() {
           isDark={isDark}
           modelStatus={modelStatus}
           checkingModels={checkingModels}
+          downloadingModels={downloadingModels}
+          downloadProgress={modelDownloadProgress}
           modelError={modelError}
           kwsSmokeRunning={kwsSmokeRunning}
           kwsSmokeResult={kwsSmokeResult}
           kwsSmokeError={kwsSmokeError}
           checkSherpaModels={checkSherpaModels}
+          downloadSherpaModels={downloadSherpaModels}
           runKwsSmoke={runKwsSmoke}
         />
+      </View>
 
+      <View style={styles.capabilityGrid}>
         <VisualMemorySection
           isDark={isDark}
           running={visualSmokeRunning}
@@ -700,7 +850,9 @@ export default function SettingsScreen() {
           runCalendarSmoke={runCalendarSmoke}
           runRealCalendarSmoke={runRealCalendarSmoke}
         />
+      </View>
 
+      <View style={styles.capabilityGrid}>
         <ServerSection
           isDark={isDark}
           serverConnected={serverConnected}
@@ -712,22 +864,22 @@ export default function SettingsScreen() {
           preferences={preferences}
           updatePreferences={updatePreferences}
         />
+      </View>
 
         {/* Version */}
         <View style={styles.versionContainer}>
-          <Text style={[styles.versionText, { color: isDark ? "#6B7280" : "#9CA3AF" }]}>
+          <Text style={styles.versionText}>
             LOOI v1.0.0 · Phase 1 Memory Loop MVP
           </Text>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+    </DeviceShell>
   );
 }
 
 function ModelStatusRow({
   label,
   status,
-  isDark,
+  isDark: _isDark,
 }: {
   label: string;
   status: SherpaModelCheck;
@@ -736,24 +888,20 @@ function ModelStatusRow({
   return (
     <View style={styles.modelRow}>
       <View style={styles.modelHeader}>
-        <Text style={[styles.label, { color: isDark ? "#D1D5DB" : "#374151" }]}>
-          {label}
-        </Text>
-        <Text style={[styles.value, { color: status.ready ? "#10B981" : "#EF4444" }]}>
+        <Text style={styles.label}>{label}</Text>
+        <Text style={[styles.value, status.ready ? styles.okText : styles.errorTone]}>
           {status.ready ? "已就绪" : "缺文件"}
         </Text>
       </View>
       {!status.ready ? (
-        <Text style={[styles.modelMissingText, { color: isDark ? "#FCA5A5" : "#B91C1C" }]}>
-          {status.missingFiles.join(", ")}
-        </Text>
+        <Text style={styles.modelMissingText}>{status.missingFiles.join(", ")}</Text>
       ) : null}
     </View>
   );
 }
 
 function ProfileSection({
-  isDark,
+  isDark: _isDark,
   name,
   voiceEnrolled,
   enrolling,
@@ -797,15 +945,15 @@ function ProfileSection({
 
   return (
     <View style={styles.section}>
-      <SectionTitle isDark={isDark}>个人信息</SectionTitle>
-      <View style={[styles.card, { backgroundColor: cardColor(isDark) }]}>
+      <SectionTitle isDark={_isDark}>主人身份 / 声纹</SectionTitle>
+      <View style={styles.card}>
         <View style={styles.row}>
-          <Text style={[styles.label, { color: labelColor(isDark) }]}>称呼</Text>
-          <Text style={[styles.value, { color: valueColor(isDark) }]}>{name}</Text>
+          <Text style={styles.label}>称呼</Text>
+          <Text style={styles.value}>{name}</Text>
         </View>
         <View style={styles.row}>
-          <Text style={[styles.label, { color: labelColor(isDark) }]}>声纹</Text>
-          <Text style={[styles.value, { color: valueColor(isDark) }]}>
+          <Text style={styles.label}>声纹</Text>
+          <Text style={[styles.value, voiceEnrolled ? styles.okText : styles.warnText]}>
             {voiceEnrolled ? "已注册" : "未注册"}
           </Text>
         </View>
@@ -863,55 +1011,88 @@ function ProfileSection({
 }
 
 function VoiceModelsSection({
-  isDark,
+  isDark: _isDark,
   modelStatus,
   checkingModels,
+  downloadingModels,
+  downloadProgress,
   modelError,
   kwsSmokeRunning,
   kwsSmokeResult,
   kwsSmokeError,
   checkSherpaModels,
+  downloadSherpaModels,
   runKwsSmoke,
 }: {
   isDark: boolean;
   modelStatus: SherpaModelStatus | null;
   checkingModels: boolean;
+  downloadingModels: boolean;
+  downloadProgress: SherpaModelDownloadProgress | null;
   modelError: string | null;
   kwsSmokeRunning: boolean;
   kwsSmokeResult: string | null;
   kwsSmokeError: string | null;
   checkSherpaModels: () => void;
+  downloadSherpaModels: () => void;
   runKwsSmoke: () => void;
 }) {
+  const hasMissingModels = modelStatus
+    ? !modelStatus.asr.ready || !modelStatus.kws.ready || !modelStatus.speaker.ready
+    : false;
+  const progressPercent = downloadProgress
+    ? Math.round(downloadProgress.progress * 100)
+    : 0;
+  const controlsDisabled = checkingModels || downloadingModels;
+
   return (
     <View style={styles.section}>
-      <SectionTitle isDark={isDark}>语音模型</SectionTitle>
-      <View style={[styles.card, { backgroundColor: cardColor(isDark) }]}>
+      <SectionTitle isDark={_isDark}>语音模型 / KWS</SectionTitle>
+      <View style={styles.card}>
         {modelStatus ? (
           <>
-            <ModelStatusRow label="SenseVoice" status={modelStatus.asr} isDark={isDark} />
-            <ModelStatusRow label="唤醒词 KWS" status={modelStatus.kws} isDark={isDark} />
-            <ModelStatusRow label="声纹 Speaker" status={modelStatus.speaker} isDark={isDark} />
+            <ModelStatusRow label="SenseVoice" status={modelStatus.asr} isDark={_isDark} />
+            <ModelStatusRow label="唤醒词 KWS" status={modelStatus.kws} isDark={_isDark} />
+            <ModelStatusRow label="声纹 Speaker" status={modelStatus.speaker} isDark={_isDark} />
           </>
         ) : (
-          <Text style={[styles.value, { color: valueColor(isDark) }]}>
-            {checkingModels ? "检查中..." : "未检查"}
-          </Text>
+          <Text style={styles.value}>{checkingModels ? "检查中..." : "未检查"}</Text>
         )}
+        {hasMissingModels ? (
+          <Text style={styles.modelHintText}>
+            缺少模型时语音识别、声纹和唤醒词不可用。可直接从官方源下载到本机。
+          </Text>
+        ) : null}
+        {downloadingModels && downloadProgress ? (
+          <Text style={styles.smokeResultText}>
+            {downloadProgress.label} · {progressPercent}%
+          </Text>
+        ) : null}
         {modelError ? <Text style={styles.errorText}>{modelError}</Text> : null}
         <Pressable
-          style={[styles.checkButton, checkingModels && styles.disabledButton]}
+          style={[styles.checkButton, controlsDisabled && styles.disabledButton]}
           onPress={checkSherpaModels}
-          disabled={checkingModels}
+          disabled={controlsDisabled}
         >
           <Text style={styles.checkButtonText}>
             {checkingModels ? "检查中..." : "重新检测模型"}
           </Text>
         </Pressable>
+        {hasMissingModels ? (
+          <Pressable
+            style={[styles.checkButton, controlsDisabled && styles.disabledButton]}
+            onPress={downloadSherpaModels}
+            disabled={controlsDisabled}
+          >
+            <Text style={styles.checkButtonText}>
+              {downloadingModels ? "下载中..." : "下载语音模型"}
+            </Text>
+          </Pressable>
+        ) : null}
         <Pressable
-          style={[styles.checkButton, kwsSmokeRunning && styles.disabledButton]}
+          style={[styles.checkButton, (kwsSmokeRunning || hasMissingModels) && styles.disabledButton]}
           onPress={runKwsSmoke}
-          disabled={kwsSmokeRunning}
+          disabled={kwsSmokeRunning || hasMissingModels}
         >
           <Text style={styles.checkButtonText}>
             {kwsSmokeRunning ? "诊断中..." : "测试唤醒词音频"}
@@ -925,7 +1106,7 @@ function VoiceModelsSection({
 }
 
 function ServerSection({
-  isDark,
+  isDark: _isDark,
   serverConnected,
   checkConnection,
 }: {
@@ -935,18 +1116,18 @@ function ServerSection({
 }) {
   return (
     <View style={styles.section}>
-      <SectionTitle isDark={isDark}>服务器</SectionTitle>
-      <View style={[styles.card, { backgroundColor: cardColor(isDark) }]}>
+      <SectionTitle isDark={_isDark}>服务器连接</SectionTitle>
+      <View style={styles.card}>
         <View style={styles.row}>
-          <Text style={[styles.label, { color: labelColor(isDark) }]}>本地服务器</Text>
+          <Text style={styles.label}>本地服务器</Text>
           <View style={styles.statusRow}>
             <View
               style={[
                 styles.statusDot,
-                { backgroundColor: serverConnected ? "#10B981" : "#EF4444" },
+                { backgroundColor: serverConnected ? looiTheme.ok : looiTheme.danger },
               ]}
             />
-            <Text style={[styles.value, { color: valueColor(isDark) }]}>
+            <Text style={styles.value}>
               {serverConnected ? "已连接" : "未连接"}
             </Text>
           </View>
@@ -960,7 +1141,7 @@ function ServerSection({
 }
 
 function VisualMemorySection({
-  isDark,
+  isDark: _isDark,
   running,
   result,
   error,
@@ -974,8 +1155,8 @@ function VisualMemorySection({
 }) {
   return (
     <View style={styles.section}>
-      <SectionTitle isDark={isDark}>视觉记忆</SectionTitle>
-      <View style={[styles.card, { backgroundColor: cardColor(isDark) }]}>
+      <SectionTitle isDark={_isDark}>视觉记忆</SectionTitle>
+      <View style={styles.card}>
         <Pressable
           style={[styles.checkButton, running && styles.disabledButton]}
           onPress={runVisualSmoke}
@@ -993,7 +1174,7 @@ function VisualMemorySection({
 }
 
 function CalendarReminderSection({
-  isDark,
+  isDark: _isDark,
   running,
   result,
   error,
@@ -1009,8 +1190,8 @@ function CalendarReminderSection({
 }) {
   return (
     <View style={styles.section}>
-      <SectionTitle isDark={isDark}>日历提醒</SectionTitle>
-      <View style={[styles.card, { backgroundColor: cardColor(isDark) }]}>
+      <SectionTitle isDark={_isDark}>日历提醒</SectionTitle>
+      <View style={styles.card}>
         <Pressable
           style={[styles.checkButton, running && styles.disabledButton]}
           onPress={runCalendarSmoke}
@@ -1056,14 +1237,24 @@ async function createCalendarSmokeEvent(): Promise<string> {
   return eventId;
 }
 
-async function runKwsDiagnosticSamples(samples: number[], sampleRate: number) {
+async function runKwsDiagnosticSamples(
+  samples: number[],
+  sampleRate: number,
+  acceptSamples: (chunk: number[]) => Promise<KwsDiagnosticResult>
+) {
   const paddedSamples = samples.concat(new Array(KWS_DIAGNOSTIC_TAIL_SILENCE_SAMPLES).fill(0));
   return feedSamplesSequentially(
     paddedSamples,
     KWS_DIAGNOSTIC_CHUNK_SIZE,
-    (chunk) => sherpaVoiceAdapter.acceptKwsSamples(chunk, sampleRate),
-    (result) => result.detected
+    acceptSamples,
+    (result) => Boolean(result.detected)
   );
+}
+
+async function getAudioFileSummary(audioUri: string): Promise<string> {
+  const info = await FileSystem.getInfoAsync(audioUri);
+  const size = info.exists ? info.size ?? 0 : 0;
+  return size > 0 ? `${Math.round(size / 1024)}KB` : "unavailable";
 }
 
 async function getOrCreateCalendarSmokeCalendar(): Promise<string> {
@@ -1079,7 +1270,7 @@ async function getOrCreateCalendarSmokeCalendar(): Promise<string> {
   return Calendar.createCalendarAsync({
     title: CALENDAR_SMOKE_CALENDAR_TITLE,
     name: CALENDAR_SMOKE_CALENDAR_TITLE,
-    color: "#6D28D9",
+    color: looiTheme.cyan,
     entityType: Calendar.EntityTypes.EVENT,
     source,
     ownerAccount: CALENDAR_SMOKE_CALENDAR_TITLE,
@@ -1088,7 +1279,7 @@ async function getOrCreateCalendarSmokeCalendar(): Promise<string> {
 }
 
 function FeaturesSection({
-  isDark,
+  isDark: _isDark,
   preferences,
   updatePreferences,
 }: {
@@ -1098,28 +1289,28 @@ function FeaturesSection({
 }) {
   return (
     <View style={styles.section}>
-      <SectionTitle isDark={isDark}>功能开关</SectionTitle>
-      <View style={[styles.card, { backgroundColor: cardColor(isDark) }]}>
+      <SectionTitle isDark={_isDark}>功能开关</SectionTitle>
+      <View style={styles.card}>
         <PreferenceSwitch
-          isDark={isDark}
+          isDark={_isDark}
           label="语音回复"
           value={preferences.ttsEnabled}
           onValueChange={(value) => updatePreferences({ ttsEnabled: value })}
         />
         <PreferenceSwitch
-          isDark={isDark}
+          isDark={_isDark}
           label="摄像头"
           value={preferences.cameraEnabled}
           onValueChange={(value) => updatePreferences({ cameraEnabled: value })}
         />
         <PreferenceSwitch
-          isDark={isDark}
+          isDark={_isDark}
           label="日历提醒"
           value={preferences.calendarEnabled}
           onValueChange={(value) => updatePreferences({ calendarEnabled: value })}
         />
         <PreferenceSwitch
-          isDark={isDark}
+          isDark={_isDark}
           label="唤醒词"
           value={preferences.wakeWordEnabled}
           onValueChange={(value) => updatePreferences({ wakeWordEnabled: value })}
@@ -1130,7 +1321,7 @@ function FeaturesSection({
 }
 
 function PreferenceSwitch({
-  isDark,
+  isDark: _isDark,
   label,
   value,
   onValueChange,
@@ -1142,75 +1333,183 @@ function PreferenceSwitch({
 }) {
   return (
     <View style={styles.switchRow}>
-      <Text style={[styles.label, { color: labelColor(isDark) }]}>{label}</Text>
-      <Switch value={value} onValueChange={onValueChange} />
+      <Text style={styles.label}>{label}</Text>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ false: "rgba(140, 155, 173, 0.28)", true: "rgba(40, 213, 255, 0.42)" }}
+        thumbColor={value ? looiTheme.cyan : looiTheme.muted}
+      />
     </View>
   );
 }
 
-function SectionTitle({ isDark, children }: { isDark: boolean; children: string }) {
-  return (
-    <Text style={[styles.sectionTitle, { color: valueColor(isDark) }]}>
-      {children}
-    </Text>
-  );
-}
-
-function cardColor(isDark: boolean): string {
-  return isDark ? "#1F2937" : "#FFFFFF";
-}
-
-function labelColor(isDark: boolean): string {
-  return isDark ? "#D1D5DB" : "#374151";
-}
-
-function valueColor(isDark: boolean): string {
-  return isDark ? "#F9FAFB" : "#111827";
+function SectionTitle({ isDark: _isDark, children }: { isDark: boolean; children: string }) {
+  return <Text style={styles.sectionTitle}>{children}</Text>;
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  scrollView: { flex: 1 },
-  content: { padding: 16 },
-  section: { marginBottom: 24 },
-  sectionTitle: { fontSize: 16, fontWeight: "600", marginBottom: 8 },
-  card: { borderRadius: 12, padding: 16, gap: 12 },
-  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  summaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginBottom: 14,
+  },
+  summaryCard: {
+    flexGrow: 1,
+    flexBasis: 180,
+    minHeight: 84,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: looiTheme.line,
+    backgroundColor: looiTheme.surface,
+    padding: 16,
+    justifyContent: "space-between",
+  },
+  summaryLabel: {
+    color: looiTheme.muted,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  summaryValue: {
+    color: looiTheme.text,
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  capabilityGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 14,
+  },
+  section: {
+    flexGrow: 1,
+    flexBasis: 320,
+    marginBottom: 14,
+  },
+  sectionTitle: {
+    color: looiTheme.text,
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  card: {
+    minHeight: 160,
+    borderRadius: 22,
+    padding: 16,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: looiTheme.line,
+    backgroundColor: looiTheme.surface,
+  },
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 14,
+  },
   switchRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 4,
+    paddingVertical: 2,
+    gap: 12,
   },
   statusRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
-  label: { fontSize: 15 },
-  value: { fontSize: 15, fontWeight: "500" },
-  modelRow: { gap: 4 },
+  label: {
+    color: looiTheme.muted,
+    fontSize: 14,
+  },
+  value: {
+    color: looiTheme.text,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  okText: {
+    color: looiTheme.ok,
+  },
+  warnText: {
+    color: looiTheme.warn,
+  },
+  errorTone: {
+    color: looiTheme.danger,
+  },
+  modelRow: {
+    gap: 4,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(84, 167, 255, 0.14)",
+  },
   modelHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: 12,
   },
-  modelMissingText: { fontSize: 12, lineHeight: 16 },
+  modelMissingText: {
+    color: looiTheme.danger,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  modelHintText: {
+    color: looiTheme.muted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
   checkButton: {
-    backgroundColor: "#6D28D9",
-    paddingVertical: 8,
-    borderRadius: 8,
+    minHeight: 40,
+    backgroundColor: "rgba(40, 213, 255, 0.1)",
+    borderWidth: 1,
+    borderColor: looiTheme.lineActive,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: 999,
     alignItems: "center",
+    justifyContent: "center",
   },
-  checkButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "500" },
+  checkButtonText: {
+    color: looiTheme.text,
+    fontSize: 14,
+    fontWeight: "700",
+  },
   enrollButton: {
-    backgroundColor: "#6D28D9",
+    minHeight: 42,
+    backgroundColor: "rgba(40, 213, 255, 0.14)",
+    borderWidth: 1,
+    borderColor: looiTheme.lineActive,
     paddingVertical: 10,
-    borderRadius: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
     alignItems: "center",
+    justifyContent: "center",
   },
-  enrollButtonActive: { backgroundColor: "#EF4444" },
+  enrollButtonActive: {
+    backgroundColor: "rgba(255, 92, 122, 0.16)",
+    borderColor: looiTheme.danger,
+  },
   disabledButton: { opacity: 0.6 },
-  enrollButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "600" },
-  errorText: { color: "#EF4444", fontSize: 13 },
-  smokeResultText: { color: "#10B981", fontSize: 12, lineHeight: 18 },
+  enrollButtonText: {
+    color: looiTheme.text,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  errorText: {
+    color: looiTheme.danger,
+    fontSize: 13,
+  },
+  smokeResultText: {
+    color: looiTheme.ok,
+    fontSize: 12,
+    lineHeight: 18,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(77, 231, 180, 0.24)",
+    backgroundColor: "rgba(77, 231, 180, 0.07)",
+    padding: 10,
+  },
   versionContainer: { alignItems: "center", paddingVertical: 24 },
-  versionText: { fontSize: 13 },
+  versionText: {
+    color: looiTheme.muted,
+    fontSize: 13,
+  },
 });

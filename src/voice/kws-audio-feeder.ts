@@ -1,5 +1,4 @@
-import { AudioStudioModule, type RecordingConfig } from "@siteed/audio-studio";
-import { wakewordService } from "./wakeword";
+import { Platform } from "react-native";
 
 type EventSubscription = {
   remove: () => void;
@@ -11,8 +10,57 @@ type AudioDataPayload = {
   buffer?: Float32Array;
 };
 
+type PermissionResponse = {
+  granted?: boolean;
+  status?: string;
+};
+
+type AudioStudioNativeModule = {
+  getPermissionsAsync?: () => Promise<PermissionResponse>;
+  addListener: (eventName: "AudioData", listener: (event: AudioDataPayload) => void) => EventSubscription;
+  prepareRecording: (config: RecordingConfig) => Promise<unknown>;
+  startRecording: (config: RecordingConfig) => Promise<unknown>;
+  stopRecording: () => Promise<unknown>;
+};
+
+type RecordingConfig = {
+  sampleRate: number;
+  channels: number;
+  encoding: "pcm_32bit";
+  interval: number;
+  streamFormat: "float32";
+  keepAwake: boolean;
+  output: {
+    primary: { enabled: boolean };
+  };
+  ios: {
+    audioSession: {
+      category: "Record";
+      mode: "Measurement";
+    };
+  };
+  android: {
+    audioFocusStrategy: "interactive";
+  };
+};
+
+async function getAudioStudioModule(): Promise<AudioStudioNativeModule> {
+  if (Platform.OS === "android") {
+    throw new Error("AudioStudio native module is excluded on Android");
+  }
+
+  const { AudioStudioModule } = await import("@siteed/audio-studio");
+  return AudioStudioModule as AudioStudioNativeModule;
+}
+
+async function getWakewordService() {
+  const { wakewordService } = await import("./wakeword");
+  return wakewordService;
+}
+
 const KWS_SAMPLE_RATE = 16000;
 const MAX_QUEUED_SAMPLES = KWS_SAMPLE_RATE * 3;
+const MAX_ACCEPT_CHUNK_SAMPLES = Math.round(KWS_SAMPLE_RATE * 0.5);
 
 const recordingConfig: RecordingConfig = {
   sampleRate: KWS_SAMPLE_RATE,
@@ -87,9 +135,12 @@ export class KwsAudioFeeder {
     try {
       if (!this.desiredRunning) return;
 
-      const permissions = await AudioStudioModule.requestPermissionsAsync?.();
-      if (permissions && !permissions.granted) {
-        throw new Error("Microphone permission not granted");
+      const AudioStudioModule = await getAudioStudioModule();
+      const permissions = await AudioStudioModule.getPermissionsAsync?.() as
+        | PermissionResponse
+        | undefined;
+      if (!permissions?.granted) {
+        throw new Error("Microphone permission not granted; wakeword feeder not started");
       }
       if (!this.desiredRunning) return;
 
@@ -130,6 +181,7 @@ export class KwsAudioFeeder {
     this.listener = null;
 
     try {
+      const AudioStudioModule = await getAudioStudioModule();
       await AudioStudioModule.stopRecording();
     } catch (error) {
       console.warn("[KWS AudioFeeder] Failed to stop:", error);
@@ -170,7 +222,9 @@ export class KwsAudioFeeder {
       while (this.started && this.queuedSamples) {
         const samples = this.queuedSamples;
         this.queuedSamples = null;
-        await wakewordService.acceptSamples(samples, KWS_SAMPLE_RATE);
+        const chunk = samples.slice(-MAX_ACCEPT_CHUNK_SAMPLES);
+        const wakewordService = await getWakewordService();
+        await wakewordService.acceptSamples(chunk, KWS_SAMPLE_RATE);
       }
     } catch (error) {
       console.warn("[KWS AudioFeeder] Failed to feed samples:", error);

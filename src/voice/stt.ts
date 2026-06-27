@@ -1,13 +1,46 @@
 import {
   AudioModule,
-  RecordingPresets,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
   type AudioRecorder,
+  type RecordingOptions,
 } from "expo-audio";
 import { useUserStore } from "../store/user";
-import { kwsAudioFeeder } from "./kws-audio-feeder";
-import { sherpaVoiceAdapter } from "./sherpa-adapter";
+import { getRuntimeProfile } from "../core/runtime-profile";
+
+const SHERPA_RECORDING_OPTIONS: RecordingOptions = {
+  extension: ".wav",
+  sampleRate: 16000,
+  numberOfChannels: 1,
+  bitRate: 256000,
+  android: {
+    extension: ".wav",
+    outputFormat: "default",
+    audioEncoder: "default",
+  },
+  ios: {
+    extension: ".wav",
+    outputFormat: "lpcm",
+    audioQuality: 0x7f,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+  web: {
+    mimeType: "audio/wav",
+    bitsPerSecond: 256000,
+  },
+};
+
+async function getKwsAudioFeeder() {
+  const { kwsAudioFeeder } = await import("./kws-audio-feeder");
+  return kwsAudioFeeder;
+}
+
+async function getSherpaVoiceAdapter() {
+  const { sherpaVoiceAdapter } = await import("./sherpa-adapter");
+  return sherpaVoiceAdapter;
+}
 
 /**
  * STT Service — Speech-to-Text
@@ -35,7 +68,7 @@ export class STTService {
         playsInSilentMode: true,
       });
 
-      const recording = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
+      const recording = new AudioModule.AudioRecorder(SHERPA_RECORDING_OPTIONS);
       await recording.prepareToRecordAsync();
       recording.record();
 
@@ -108,6 +141,7 @@ export class STTService {
    * Transcribe the recorded audio file on device with sherpa-onnx.
    */
   async transcribeFile(audioUri: string): Promise<string> {
+    const sherpaVoiceAdapter = await getSherpaVoiceAdapter();
     return sherpaVoiceAdapter.transcribeFile(audioUri);
   }
 
@@ -116,6 +150,7 @@ export class STTService {
   }
 
   private async pauseWakewordFeeder(): Promise<void> {
+    const kwsAudioFeeder = await getKwsAudioFeeder();
     if (!kwsAudioFeeder.isRunning) {
       return;
     }
@@ -134,7 +169,11 @@ export class STTService {
     if (!useUserStore.getState().preferences.wakeWordEnabled) {
       return;
     }
+    if (!getRuntimeProfile().allowsWakewordAutostart) {
+      return;
+    }
 
+    const kwsAudioFeeder = await getKwsAudioFeeder();
     await kwsAudioFeeder.start();
     console.log("[STT] Resumed KWS feeder after recording");
   }

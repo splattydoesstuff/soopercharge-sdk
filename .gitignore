@@ -60,3 +60,5 @@ app-models/sherpa-onnx/**
 pnpm-lock.yaml
 .claude/worktrees/
 server/memory.db
+
+output/

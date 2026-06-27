@@ -3,7 +3,7 @@
     "name": "super-looi-app",
     "slug": "super-looi-app",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "landscape",
     "icon": "./assets/images/icon.png",
     "scheme": "superlooiapp",
     "userInterfaceStyle": "automatic",
@@ -36,6 +36,13 @@
           "enableBackgroundRecording": false
         }
       ],
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Allow Looi to read calendars for upcoming reminder checks",
+          "remindersPermission": "Allow Looi to read reminders for upcoming reminder checks"
+        }
+      ],
       "@siteed/sherpa-onnx.rn/app.plugin",
       [
         "@siteed/audio-studio",
@@ -49,6 +56,7 @@
           }
         }
       ],
+      "./plugins/with-android-audio-studio-excluded",
       [
         "expo-splash-screen",
         {

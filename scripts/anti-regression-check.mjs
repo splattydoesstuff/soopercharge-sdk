@@ -62,8 +62,10 @@ assertPresent("src/voice/speaker-id.ts", [
   /Asset\.fromModule/,
   /non-owner-voice\.wav/,
   /restoreOwnerEmbedding\(\)/,
-  /Restored owner embedding from SecureStore/,
-  /SecureStore\.setItemAsync/,
+  /Restored owner embedding from MMKV/,
+  /createMMKV/,
+  /speakerStorage\.set/,
+  /Migrated owner embedding from SecureStore to MMKV/,
   /SecureStore\.getItemAsync/,
   /verifyDiagnosticNonOwner\(\)/,
 ]);

@@ -1,8 +1,11 @@
-import { sherpaVoiceAdapter } from "./sherpa-adapter";
-
 export type WakewordState = "idle" | "listening" | "detected" | "unavailable";
 
 type WakewordCallback = () => void;
+
+async function getSherpaVoiceAdapter() {
+  const { sherpaVoiceAdapter } = await import("./sherpa-adapter");
+  return sherpaVoiceAdapter;
+}
 
 export class WakewordService {
   private listeners: WakewordCallback[] = [];
@@ -13,6 +16,7 @@ export class WakewordService {
     if (this.listening) return;
 
     try {
+      const sherpaVoiceAdapter = await getSherpaVoiceAdapter();
       await sherpaVoiceAdapter.initializeKws();
       this.listening = true;
       this._state = "listening";
@@ -31,6 +35,7 @@ export class WakewordService {
   async acceptSamples(samples: number[], sampleRate = 16000): Promise<void> {
     if (!this.listening) return;
 
+    const sherpaVoiceAdapter = await getSherpaVoiceAdapter();
     const result = await sherpaVoiceAdapter.acceptKwsSamples(samples, sampleRate);
     if (result.detected) {
       this.notifyDetected();

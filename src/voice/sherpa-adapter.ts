@@ -5,7 +5,9 @@ import SherpaOnnx, {
 } from "@siteed/sherpa-onnx.rn";
 import {
   checkSherpaModelFiles,
+  checkAllSherpaModelReadiness,
   formatSherpaModelError,
+  formatSherpaModelUserMessage,
   resolveSherpaModelDir,
 } from "./sherpa-models";
 
@@ -238,27 +240,7 @@ export class SherpaVoiceAdapter {
   }
 
   async checkModelReadiness() {
-    const asrConfig = getSherpaAsrConfig();
-    const kwsConfig = getSherpaKwsConfig();
-    const speakerConfig = getSherpaSpeakerConfig();
-
-    return {
-      asr: await checkSherpaModelFiles(
-        "asr",
-        resolveSherpaModelDir(asrConfig.modelDir),
-        getAsrRequiredFiles(asrConfig)
-      ),
-      kws: await checkSherpaModelFiles(
-        "kws",
-        resolveSherpaModelDir(kwsConfig.modelDir),
-        getKwsRequiredFiles(kwsConfig)
-      ),
-      speaker: await checkSherpaModelFiles(
-        "speaker",
-        resolveSherpaModelDir(speakerConfig.modelDir),
-        getSpeakerRequiredFiles(speakerConfig)
-      ),
-    };
+    return checkAllSherpaModelReadiness();
   }
 
   private async assertModelFilesReady(
@@ -268,7 +250,9 @@ export class SherpaVoiceAdapter {
   ): Promise<void> {
     const check = await checkSherpaModelFiles(kind, modelDir, requiredFiles);
     if (!check.ready) {
-      throw new Error(formatSherpaModelError(check));
+      const error = new Error(formatSherpaModelUserMessage(check));
+      console.warn(formatSherpaModelError(check));
+      throw error;
     }
   }
 }

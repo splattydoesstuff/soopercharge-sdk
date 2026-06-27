@@ -19,22 +19,30 @@ export class CalendarPerceiver extends BasePerceiver {
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private notifiedEvents: Set<string> = new Set();
   private reminderMinutesBefore = 15;
+  private unavailableReason: string | null = null;
 
   async start(): Promise<void> {
+    if (this.isActive) return;
     this.isActive = true;
+    this.unavailableReason = null;
 
-    // Request calendar permissions
-    const { status } = await Calendar.requestCalendarPermissionsAsync();
-    if (status !== "granted") {
-      console.warn("[CalendarPerceiver] Calendar permission not granted");
+    try {
+      const { status } = await Calendar.getCalendarPermissionsAsync();
+      if (status !== "granted") {
+        this.disable("Calendar permission not granted; skipping background calendar polling");
+        return;
+      }
+
+      // Check immediately before installing a poller. Some emulator images expose
+      // calendar permissions but do not ship a calendar provider.
+      await this.checkUpcomingEvents();
+    } catch (error) {
+      this.disable(this.getErrorMessage(error));
       return;
     }
 
     // Start polling every 60 seconds
     this.pollInterval = setInterval(() => this.checkUpcomingEvents(), 60_000);
-
-    // Check immediately on start
-    await this.checkUpcomingEvents();
   }
 
   async stop(): Promise<void> {
@@ -49,6 +57,13 @@ export class CalendarPerceiver extends BasePerceiver {
    * Check for upcoming events and emit observations
    */
   async checkNow(): Promise<number> {
+    if (!this.isActive && !this.unavailableReason) {
+      await this.start();
+    }
+    if (this.unavailableReason) {
+      console.warn(`[CalendarPerceiver] Calendar unavailable: ${this.unavailableReason}`);
+      return 0;
+    }
     return this.checkUpcomingEvents();
   }
 
@@ -89,9 +104,36 @@ export class CalendarPerceiver extends BasePerceiver {
       this.cleanupOldNotifications();
       return emitted;
     } catch (error) {
-      console.error("[CalendarPerceiver] Error checking events:", error);
+      if (this.isCalendarUnavailableError(error)) {
+        this.disable(this.getErrorMessage(error));
+        return 0;
+      }
+
+      console.warn("[CalendarPerceiver] Error checking events:", error);
       return 0;
     }
+  }
+
+  private disable(reason: string): void {
+    this.unavailableReason = reason;
+    this.isActive = false;
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
+    console.warn(`[CalendarPerceiver] Calendar unavailable: ${reason}`);
+  }
+
+  private isCalendarUnavailableError(error: unknown): boolean {
+    return this.getErrorMessage(error).includes("E_CALENDARS_NOT_FOUND");
+  }
+
+  private getErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      const code = "code" in error ? String(error.code) : "";
+      return [code, error.message].filter(Boolean).join(": ");
+    }
+    return String(error);
   }
 
   private buildEventDescription(event: CalendarEvent, minutesUntil: number): string {

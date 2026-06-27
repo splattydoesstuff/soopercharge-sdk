@@ -9,7 +9,10 @@ import { ttsService } from "../voice/tts";
 import { useUserStore } from "../store/user";
 import { useConversationStore } from "../store/conversation";
 import { llmService, memoryService, observeService } from "../server-api/client";
+import { getRuntimeProfile } from "../core/runtime-profile";
 import { cameraPerceiver } from "./camera-perceiver";
+
+const RECORDING_START_TIMEOUT_MS = 5000;
 
 /**
  * VoicePerceiver — orchestrates the voice pipeline:
@@ -21,10 +24,16 @@ export class VoicePerceiver extends BasePerceiver {
   name = "voice";
   private unsubWakeword: (() => void) | null = null;
   private unsubPreferences: (() => void) | null = null;
+  private startRecordingPromise: Promise<void> | null = null;
+  private isFinishingListening = false;
+  private cancelRecordingAfterStart = false;
+  private allowsWakewordAutostart = true;
 
   async start(): Promise<void> {
+    if (this.isActive) return;
+
     this.isActive = true;
-    await wakewordService.start();
+    this.allowsWakewordAutostart = getRuntimeProfile().allowsWakewordAutostart;
 
     this.unsubWakeword = wakewordService.onWakeword(() => {
       this.handleWakeword();
@@ -38,7 +47,7 @@ export class VoicePerceiver extends BasePerceiver {
       this.syncWakewordFeeder();
     });
 
-    if (useUserStore.getState().preferences.wakeWordEnabled) {
+    if (this.shouldRunWakewordFeeder()) {
       await this.startWakewordFeeder();
     }
   }
@@ -61,7 +70,7 @@ export class VoicePerceiver extends BasePerceiver {
    * Manually trigger the voice pipeline (for button-press mode)
    */
   trigger(): void {
-    wakewordService.trigger();
+    this.handleWakeword();
   }
 
   /**
@@ -71,24 +80,41 @@ export class VoicePerceiver extends BasePerceiver {
     const userStore = useUserStore.getState();
     const conversationStore = useConversationStore.getState();
 
-    if (conversationStore.isListening || conversationStore.isProcessing || userStore.voiceState !== "sleeping") {
+    if (
+      conversationStore.isListening ||
+      conversationStore.isProcessing ||
+      userStore.voiceState !== "sleeping" ||
+      this.startRecordingPromise ||
+      this.isFinishingListening
+    ) {
+      console.log("[VoicePerceiver] Ignored trigger", {
+        isListening: conversationStore.isListening,
+        isProcessing: conversationStore.isProcessing,
+        voiceState: userStore.voiceState,
+        hasStartRecordingPromise: Boolean(this.startRecordingPromise),
+        isFinishingListening: this.isFinishingListening,
+      });
       return;
     }
 
+    console.log("[VoicePerceiver] Listening started");
     // Step 1: Start listening. Owner verification runs against this same audio file
     // before transcription, so accepted commands still require speaker verification.
     userStore.setVoiceState("listening");
     conversationStore.setListening(true);
 
+    const startRecordingPromise = this.startRecordingForListening();
+    this.startRecordingPromise = startRecordingPromise;
+
     try {
-      await kwsAudioFeeder.stop();
-      await sttService.startRecording();
-    } catch (error) {
-      console.error("[VoicePerceiver] Failed to start recording:", error);
-      userStore.setVoiceState("sleeping");
-      conversationStore.setListening(false);
-      await this.restartWakewordFeederIfNeeded();
-      return;
+      await startRecordingPromise;
+    } finally {
+      if (this.startRecordingPromise === startRecordingPromise) {
+        this.startRecordingPromise = null;
+        if (!sttService.recording_active) {
+          await this.restartWakewordFeederIfNeeded();
+        }
+      }
     }
   }
 
@@ -97,23 +123,70 @@ export class VoicePerceiver extends BasePerceiver {
    * Called by UI when user releases the button or VAD detects silence
    */
   async finishListening(): Promise<void> {
-    const userStore = useUserStore.getState();
-    const conversationStore = useConversationStore.getState();
+    let userStore = useUserStore.getState();
+    let conversationStore = useConversationStore.getState();
+
+    if (this.isFinishingListening) {
+      console.log("[VoicePerceiver] Ignored finish: already finishing");
+      return;
+    }
+
+    this.isFinishingListening = true;
+    const hadListeningRequest =
+      conversationStore.isListening ||
+      userStore.voiceState === "listening" ||
+      Boolean(this.startRecordingPromise) ||
+      sttService.recording_active;
+
+    console.log("[VoicePerceiver] Finish requested", {
+      hadListeningRequest,
+      isListening: conversationStore.isListening,
+      voiceState: userStore.voiceState,
+      recordingActive: sttService.recording_active,
+      hasStartRecordingPromise: Boolean(this.startRecordingPromise),
+    });
 
     conversationStore.setListening(false);
-    userStore.setVoiceState("processing");
-    conversationStore.setProcessing(true);
+    if (hadListeningRequest) {
+      userStore.setVoiceState("processing");
+      conversationStore.setProcessing(true);
+    }
 
     try {
+      if (!sttService.recording_active && this.startRecordingPromise) {
+        const recordingStarted = await this.waitForRecordingStart(this.startRecordingPromise);
+        if (!recordingStarted) {
+          this.cancelRecordingAfterStart = true;
+          console.warn("[VoicePerceiver] Recording start timed out; cancelling when ready");
+          return;
+        }
+      }
+
+      userStore = useUserStore.getState();
+      conversationStore = useConversationStore.getState();
+
+      if (!sttService.recording_active) {
+        console.log("[VoicePerceiver] Finish stopped: no active recording");
+        if (userStore.voiceState === "listening") {
+          userStore.setVoiceState("sleeping");
+        }
+        return;
+      }
+
+      userStore.setVoiceState("processing");
+      conversationStore.setProcessing(true);
+
       // Step 2: Stop recording and verify owner before accepting the command.
       const audioUri = await sttService.stopRecording();
+      console.log("[VoicePerceiver] Recording stopped", { audioUri });
 
       userStore.setVoiceState("verifying");
       const isOwner = await speakerIdService.verifyFile(audioUri);
+      console.log("[VoicePerceiver] Speaker verification finished", { isOwner });
       if (!isOwner) {
         conversationStore.addMessage({
           role: "assistant",
-          content: "还没有完成声纹验证，暂时不能继续语音记事。",
+          content: "还没有通过声纹验证。请先在设置里录入主人声纹，或重新录一段更清晰的语音。",
         });
         return;
       }
@@ -121,7 +194,12 @@ export class VoicePerceiver extends BasePerceiver {
       // Step 3: Transcribe the same verified audio.
       userStore.setVoiceState("processing");
       const transcript = await sttService.transcribeFile(audioUri);
+      console.log("[VoicePerceiver] STT finished", { transcript });
       if (!transcript.trim()) {
+        conversationStore.addMessage({
+          role: "assistant",
+          content: "我没有听清刚才的话，请靠近一点再说一次。",
+        });
         userStore.setVoiceState("sleeping");
         conversationStore.setProcessing(false);
         return;
@@ -136,7 +214,9 @@ export class VoicePerceiver extends BasePerceiver {
       this.emit(observation);
 
       // Step 5: Process with LLM
+      console.log("[VoicePerceiver] Classifying intent", { transcript });
       const intent = await llmService.classifyIntent(transcript);
+      console.log("[VoicePerceiver] Intent classified", { intent });
       let response: string;
       let evidenceUri: string | undefined;
 
@@ -155,6 +235,7 @@ export class VoicePerceiver extends BasePerceiver {
 
         response = result.response;
         evidenceUri = result.evidenceUri;
+        console.log("[VoicePerceiver] Voice+visual observation processed", { evidenceUri });
         this.emit({
           ...jointObservation,
           content: result.description,
@@ -169,12 +250,14 @@ export class VoicePerceiver extends BasePerceiver {
           [{ role: "user", content: transcript }],
           observation.metadata
         );
+        console.log("[VoicePerceiver] Memory stored");
         response = await llmService.generateResponse(intent, {
           facts: [],
           transcript,
         });
       } else if (intent === "search") {
         const facts = await memoryService.search(transcript);
+        console.log("[VoicePerceiver] Memory searched", { facts: facts.length });
         response = await llmService.generateResponse(intent, { facts, transcript });
         evidenceUri = facts.find((fact) => fact.metadata?.evidenceUri)?.metadata?.evidenceUri;
       } else {
@@ -185,6 +268,7 @@ export class VoicePerceiver extends BasePerceiver {
       }
 
       // Step 6: Add assistant response
+      console.log("[VoicePerceiver] Assistant response generated", { response });
       conversationStore.addMessage({ role: "assistant", content: response, evidenceUri });
 
       // Step 7: TTS playback
@@ -195,7 +279,11 @@ export class VoicePerceiver extends BasePerceiver {
         await ttsService.speak({ text: response });
       }
     } catch (error) {
-      console.error("[VoicePerceiver] Processing error:", error);
+      if (error instanceof Error && error.message === "No active recording") {
+        return;
+      }
+
+      console.warn("[VoicePerceiver] Processing stopped:", error);
       conversationStore.addMessage({
         role: "assistant",
         content: "抱歉，处理时出了点问题，请再试一次。",
@@ -204,13 +292,44 @@ export class VoicePerceiver extends BasePerceiver {
       userStore.setVoiceState("sleeping");
       conversationStore.setProcessing(false);
       conversationStore.setSpeaking(false);
+      this.isFinishingListening = false;
       await sttService.resumeWakewordFeederIfPaused();
       await this.restartWakewordFeederIfNeeded();
     }
   }
 
+  private async startRecordingForListening(): Promise<void> {
+    const userStore = useUserStore.getState();
+    const conversationStore = useConversationStore.getState();
+
+    try {
+      await kwsAudioFeeder.stop();
+      await sttService.startRecording();
+      if (this.cancelRecordingAfterStart) {
+        await sttService.cancel();
+      }
+    } catch (error) {
+      console.error("[VoicePerceiver] Failed to start recording:", error);
+      userStore.setVoiceState("sleeping");
+      conversationStore.setListening(false);
+      await this.restartWakewordFeederIfNeeded();
+    } finally {
+      this.cancelRecordingAfterStart = false;
+    }
+  }
+
+  private async waitForRecordingStart(startRecordingPromise: Promise<void>): Promise<boolean> {
+    return Promise.race([
+      startRecordingPromise.then(() => true),
+      new Promise<boolean>((resolve) => {
+        setTimeout(() => resolve(false), RECORDING_START_TIMEOUT_MS);
+      }),
+    ]);
+  }
+
   private async startWakewordFeeder(): Promise<void> {
     try {
+      await wakewordService.start();
       await kwsAudioFeeder.start();
     } catch (error) {
       console.warn("[VoicePerceiver] Wakeword audio feeder unavailable:", error);
@@ -231,10 +350,13 @@ export class VoicePerceiver extends BasePerceiver {
 
     return (
       this.isActive &&
+      this.allowsWakewordAutostart &&
       userStore.preferences.wakeWordEnabled &&
       userStore.voiceState === "sleeping" &&
       !conversationStore.isListening &&
-      !conversationStore.isProcessing
+      !conversationStore.isProcessing &&
+      !this.startRecordingPromise &&
+      !this.isFinishingListening
     );
   }
 

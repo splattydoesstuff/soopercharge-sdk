@@ -17,6 +17,7 @@
     "expo-font": "~56.0.7",
     "expo-image": "^56.0.11",
     "expo-linking": "~56.0.14",
+    "expo-navigation-bar": "~56.0.3",
     "expo-notifications": "^56.0.18",
     "expo-router": "~56.2.11",
     "expo-secure-store": "^56.0.4",
@@ -24,10 +25,14 @@
     "expo-status-bar": "~56.0.4",
     "expo-symbols": "~56.0.6",
     "expo-web-browser": "~56.0.5",
+    "nativewind": "^4.2.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.85.3",
+    "react-native-css-interop": "0.2.6",
     "react-native-dotenv": "^3.4.11",
+    "react-native-mmkv": "^4.3.2",
+    "react-native-nitro-modules": "^0.35.10",
     "react-native-reanimated": "4.3.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2",
@@ -37,14 +42,27 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "babel-preset-expo": "^56.0.15",
+    "prettier-plugin-tailwindcss": "^0.5.11",
+    "tailwindcss": "^3.4.17",
     "typescript": "~6.0.3"
   },
   "scripts": {
     "start": "expo start",
+    "dev": "pnpm start -- --dev-client",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "test": "node scripts/anti-regression-check.mjs",
     "web": "expo start --web"
+  },
+  "expo": {
+    "autolinking": {
+      "android": {
+        "exclude": [
+          "@siteed/audio-studio"
+        ]
+      }
+    }
   },
   "private": true
 }

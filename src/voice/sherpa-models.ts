@@ -11,6 +11,23 @@ export interface SherpaModelCheck {
 }
 
 const SHERPA_DOCUMENT_ROOT = `${FileSystem.documentDirectory ?? ""}sherpa-onnx/`;
+const DEFAULT_STT_MODEL_DIR = "sherpa-onnx/asr/sensevoice";
+const DEFAULT_STT_MODEL_FILE = "model.int8.onnx";
+const DEFAULT_STT_TOKENS_FILE = "tokens.txt";
+const DEFAULT_KWS_MODEL_DIR = "sherpa-onnx/kws/looi";
+const DEFAULT_SPEAKER_MODEL_DIR = "sherpa-onnx/speaker-id/looi";
+const DEFAULT_SPEAKER_MODEL_FILE = "model.onnx";
+const DEFAULT_KEYWORDS_FILE = "keywords.txt";
+const DEFAULT_KWS_ENCODER_FILE = "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx";
+const DEFAULT_KWS_DECODER_FILE = "decoder-epoch-12-avg-2-chunk-16-left-64.onnx";
+const DEFAULT_KWS_JOINER_FILE = "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx";
+const DEFAULT_KWS_TOKENS_FILE = "tokens.txt";
+const SHERPA_MODEL_DOWNLOAD_HINT =
+  "请在设置页的“语音模型 / KWS”中下载模型，下载完成后重新开始语音服务。";
+
+function env(name: string, fallback: string): string {
+  return process.env[name] || fallback;
+}
 
 export function resolveSherpaModelDir(modelDir: string): string {
   if (modelDir.startsWith("file://") || modelDir.startsWith("/")) {
@@ -49,6 +66,42 @@ export function formatSherpaModelError(check: SherpaModelCheck): string {
   return [
     `Sherpa ${check.kind} model files are missing in ${check.absoluteModelDir}`,
     `Missing: ${check.missingFiles.join(", ")}`,
-    "Run `bash scripts/download-sherpa-models.sh`, then copy app-models/sherpa-onnx/ into the app document directory `sherpa-onnx/` on the device before starting voice services.",
+    SHERPA_MODEL_DOWNLOAD_HINT,
   ].join(". ");
+}
+
+export function formatSherpaModelUserMessage(check: SherpaModelCheck): string {
+  const labelByKind: Record<SherpaModelKind, string> = {
+    asr: "语音识别",
+    kws: "唤醒词",
+    speaker: "声纹",
+  };
+  return `${labelByKind[check.kind]}模型缺失，请先在设置页下载语音模型。缺失：${check.missingFiles.join(", ")}`;
+}
+
+export async function checkAllSherpaModelReadiness(): Promise<{
+  asr: SherpaModelCheck;
+  kws: SherpaModelCheck;
+  speaker: SherpaModelCheck;
+}> {
+  const asrModelDir = env("EXPO_PUBLIC_SHERPA_STT_MODEL_DIR", DEFAULT_STT_MODEL_DIR);
+  const kwsModelDir = env("EXPO_PUBLIC_SHERPA_KWS_MODEL_DIR", DEFAULT_KWS_MODEL_DIR);
+  const speakerModelDir = env("EXPO_PUBLIC_SHERPA_SPEAKER_MODEL_DIR", DEFAULT_SPEAKER_MODEL_DIR);
+
+  return {
+    asr: await checkSherpaModelFiles("asr", asrModelDir, [
+      env("EXPO_PUBLIC_SHERPA_STT_MODEL_FILE", DEFAULT_STT_MODEL_FILE),
+      env("EXPO_PUBLIC_SHERPA_STT_TOKENS_FILE", DEFAULT_STT_TOKENS_FILE),
+    ]),
+    kws: await checkSherpaModelFiles("kws", kwsModelDir, [
+      env("EXPO_PUBLIC_SHERPA_KWS_ENCODER_FILE", DEFAULT_KWS_ENCODER_FILE),
+      env("EXPO_PUBLIC_SHERPA_KWS_DECODER_FILE", DEFAULT_KWS_DECODER_FILE),
+      env("EXPO_PUBLIC_SHERPA_KWS_JOINER_FILE", DEFAULT_KWS_JOINER_FILE),
+      env("EXPO_PUBLIC_SHERPA_KWS_TOKENS_FILE", DEFAULT_KWS_TOKENS_FILE),
+      env("EXPO_PUBLIC_SHERPA_KEYWORDS_FILE", DEFAULT_KEYWORDS_FILE),
+    ]),
+    speaker: await checkSherpaModelFiles("speaker", speakerModelDir, [
+      env("EXPO_PUBLIC_SHERPA_SPEAKER_MODEL_FILE", DEFAULT_SPEAKER_MODEL_FILE),
+    ]),
+  };
 }

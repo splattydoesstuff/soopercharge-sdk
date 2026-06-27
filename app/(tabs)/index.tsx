@@ -1,124 +1,123 @@
-import { useEffect, useRef } from "react";
-import {
-  StyleSheet,
-  View,
-  FlatList,
-  Text,
-  useColorScheme,
-  KeyboardAvoidingView,
-  Platform,
-} from "react-native";
+import { useEffect, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useConversationStore, ChatMessage } from "@/src/store/conversation";
-import { useUserStore } from "@/src/store/user";
-import { VoiceButton } from "@/src/ui/VoiceButton";
-import { ChatBubble } from "@/src/ui/ChatBubble";
-import { CameraFrameFeeder } from "@/src/ui/CameraFrameFeeder";
+import { useRouter } from "expo-router";
+import { LazyCameraFrameFeeder } from "@/src/ui/LazyCameraFrameFeeder";
+import { RobotFace } from "@/src/ui/RobotFace";
+import { looiTheme } from "@/src/ui/looi-theme";
 
-export default function ChatScreen() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const messages = useConversationStore((s) => s.messages);
-  const isProcessing = useConversationStore((s) => s.isProcessing);
-  const isListening = useConversationStore((s) => s.isListening);
-  const voiceState = useUserStore((s) => s.voiceState);
-  const flatListRef = useRef<FlatList>(null);
+const quickActions = [
+  { label: "对话", mark: "C", href: "/conversation" },
+  { label: "记忆", mark: "M", href: "/memories" },
+  { label: "提醒", mark: "R", href: "/reminders" },
+  { label: "设置", mark: "S", href: "/settings" },
+] as const;
 
-  // Auto-scroll to bottom
+export default function IndexScreen() {
+  const router = useRouter();
+  const [quickPanelVisible, setQuickPanelVisible] = useState(false);
+
   useEffect(() => {
-    if (messages.length > 0) {
-      const timer = setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-      return () => clearTimeout(timer);
-    }
-  }, [messages.length]);
-
-  const renderMessage = ({ item }: { item: ChatMessage }) => (
-    <ChatBubble message={item} isDark={isDark} />
-  );
+    if (!quickPanelVisible) return;
+    const timer = setTimeout(() => setQuickPanelVisible(false), 4200);
+    return () => clearTimeout(timer);
+  }, [quickPanelVisible]);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: isDark ? "#111827" : "#F9FAFB" }]}>
-      <CameraFrameFeeder />
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
-        {/* Status indicator */}
-        <View style={styles.statusBar}>
-          <View
-            style={[
-              styles.statusDot,
-              { backgroundColor: voiceState === "sleeping" ? "#10B981" : "#F59E0B" },
-            ]}
-          />
-          <Text style={[styles.statusText, { color: isDark ? "#9CA3AF" : "#6B7280" }]}>
-            {voiceState === "sleeping" && "待命中"}
-            {voiceState === "listening" && "聆听中..."}
-            {voiceState === "processing" && "思考中..."}
-            {voiceState === "speaking" && "播报中..."}
-            {voiceState === "verifying" && "验证中..."}
-          </Text>
-        </View>
-
-        {/* Messages */}
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          renderItem={renderMessage}
-          keyExtractor={(item) => item.id}
-          style={styles.messageList}
-          contentContainerStyle={styles.messageListContent}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={[styles.emptyTitle, { color: isDark ? "#F9FAFB" : "#111827" }]}>
-                👋 嗨，我是 LOOI
-              </Text>
-              <Text style={[styles.emptySubtitle, { color: isDark ? "#9CA3AF" : "#6B7280" }]}>
-                按住下方按钮说话，我会帮你记住事情
-              </Text>
-            </View>
-          }
+    <SafeAreaView style={styles.home}>
+      <LazyCameraFrameFeeder />
+      <View style={styles.faceStage}>
+        <RobotFace
+          mode="fullscreen"
+          labelVisible={false}
+          onPress={() => setQuickPanelVisible((visible) => !visible)}
         />
-
-        {/* Voice button */}
-        <View style={styles.voiceArea}>
-          <VoiceButton />
+      </View>
+      {quickPanelVisible ? (
+        <View style={styles.quickPanel}>
+          <Text style={styles.quickPrompt}>今天需要我做什么？</Text>
+          <View style={styles.quickRow}>
+            {quickActions.map((action) => (
+              <Pressable
+                key={action.href}
+                accessibilityRole="button"
+                onPress={() => {
+                  setQuickPanelVisible(false);
+                  router.replace(action.href);
+                }}
+                style={styles.quickAction}
+              >
+                <Text style={styles.quickMark}>{action.mark}</Text>
+                <Text style={styles.quickLabel}>{action.label}</Text>
+              </Pressable>
+            ))}
+          </View>
         </View>
-      </KeyboardAvoidingView>
+      ) : null}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  flex: { flex: 1 },
-  statusBar: {
-    flexDirection: "row",
+  home: {
+    flex: 1,
+    backgroundColor: looiTheme.bg,
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    justifyContent: "center",
+    overflow: "hidden",
   },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 8,
-  },
-  statusText: { fontSize: 13 },
-  messageList: { flex: 1 },
-  messageListContent: { paddingHorizontal: 16, paddingBottom: 16 },
-  emptyContainer: {
+  faceStage: {
+    width: "100%",
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 120,
   },
-  emptyTitle: { fontSize: 24, fontWeight: "bold", marginBottom: 8 },
-  emptySubtitle: { fontSize: 15, textAlign: "center", paddingHorizontal: 32 },
-  voiceArea: {
-    paddingVertical: 20,
+  quickPanel: {
+    position: "absolute",
+    bottom: 48,
+    alignSelf: "center",
+    minWidth: 520,
+    maxWidth: "86%",
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: looiTheme.lineActive,
+    backgroundColor: "rgba(3, 13, 24, 0.86)",
+    paddingHorizontal: 22,
+    paddingVertical: 16,
+    gap: 14,
+  },
+  quickPrompt: {
+    color: looiTheme.text,
+    fontSize: 15,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  quickRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  quickAction: {
+    minWidth: 108,
+    minHeight: 46,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: looiTheme.line,
+    backgroundColor: "rgba(40, 213, 255, 0.07)",
+    flexDirection: "row",
     alignItems: "center",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#E5E7EB",
+    justifyContent: "center",
+    gap: 8,
+  },
+  quickMark: {
+    color: looiTheme.cyan,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  quickLabel: {
+    color: looiTheme.text,
+    fontSize: 14,
+    fontWeight: "600",
   },
 });
