@@ -11,7 +11,7 @@
 | 3 | "钥匙放哪" → 位置+证据截图 | ⏳ | `衣服放哪了` 检索已返回 `placementFact=衣服在桌子下` 和 evidenceUri，服务端回复确定性使用 top fact；对话页和记忆列表 evidence 图片均已在 Android 通过 Glide 加载验证；仍需实际语音检索路径验证 |
 | 4 | 日历提醒推送 | ✅ | Android emulator 已创建真实系统日历事件，经 CalendarPerceiver 扫描 `emitted=1`，触发 ReminderScheduler、本地通知和 TTS；通知栏显示 `LOOI 提醒` |
 | 5 | 不确定时说"我不记得" | ✅ | LLM search 无 facts prompt 明确禁止编造；根/服务端 TypeScript 通过 |
-| 6 | 全程免手操作(唤醒词) | ⏳ | Android emulator 已验证 KWS native 初始化、模型绝对路径和 audio feeder 持续喂样本；还需真实唤醒词、Speaker/STT 行为验证 |
+| 6 | 全程免手操作(唤醒词) | ⏳ | Android emulator 已验证 KWS native 初始化、模型绝对路径、audio feeder 持续喂样本、Speaker owner pass 和固定非 owner 语音 asset reject；还需真实唤醒词命中验证 |
 | 7 | iOS + Android 双平台 | ⏳ | Android `:app:assembleDebug` 已通过；iOS native build 仍被本机 Xcode 缺失组件阻塞；双平台设备实测未完成 |
 
 ---
@@ -147,6 +147,7 @@
 - [x] Android emulator 启动日志验证：JS bundle 正常加载，Sherpa JNI 加载，KWS 初始化完成且持续接收音频样本
 - [x] Android emulator 设置页语音诊断：`[Settings] Voice smoke succeeded ... speaker=pass | stt=没。`，且日志显示 `[STT] Paused KWS feeder for recording` 后到识别完成前无 `acceptWaveform`，随后 `[STT] Resumed KWS feeder after recording`
 - [x] Android emulator 设置页已注册声纹验证：重启 App 后恢复 SecureStore embedding，`[Settings] Speaker verify succeeded ... enrolled=yes | speaker=pass`，并确认 KWS feeder 暂停/恢复
+- [x] Android emulator 设置页已注册声纹验证补充：同一次诊断输出 `owner=pass | nonOwner=reject`，证明固定非 owner 语音 asset 不会被接受；日志显示 non-owner WAV 经 `processAudioFile` 处理出 512 维 embedding 后被拒绝
 - [x] Android emulator 设置页视觉诊断：`[Settings] Visual smoke succeeded ... remembered=no ... evidence=... description=...纯色...`，并确认 ChatBubble evidence 图片加载
 - [x] Android emulator 设置页日历诊断：`[Settings] Calendar smoke succeeded: notification=... | spoke=yes | response=...`，并通过系统通知栏截图确认 `LOOI 提醒`
 - [x] Android emulator 真实系统日历事件诊断：设置页创建系统日历事件，CalendarPerceiver 扫描 emit，正式 ReminderScheduler 发本地通知并 TTS，通知栏截图确认 `LOOI 提醒`

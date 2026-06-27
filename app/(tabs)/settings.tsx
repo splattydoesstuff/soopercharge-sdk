@@ -429,11 +429,18 @@ export default function SettingsScreen() {
       const audioUri = await sttService.stopRecording();
       const enrolled = await speakerIdService.refreshEnrollmentStatus();
       const verified = enrolled ? await speakerIdService.verifyFile(audioUri) : false;
+      const nonOwnerVerified = enrolled
+        ? await speakerIdService.verifyDiagnosticNonOwner()
+        : false;
+      if (nonOwnerVerified) {
+        throw new Error("Diagnostic non-owner sample was accepted");
+      }
       setVoiceEnrolled(enrolled);
       const result = [
         `audio=${audioUri}`,
         `enrolled=${enrolled ? "yes" : "no"}`,
-        `speaker=${verified ? "pass" : "fail"}`,
+        `owner=${verified ? "pass" : "fail"}`,
+        `nonOwner=${nonOwnerVerified ? "accept" : "reject"}`,
       ].join(" | ");
       console.log(`[Settings] Speaker verify succeeded: ${result}`);
       dispatchUi({ type: "speaker-verify/succeeded", result });

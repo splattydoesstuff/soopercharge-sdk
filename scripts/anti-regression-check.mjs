@@ -59,10 +59,13 @@ assertPresent("src/perceivers/voice-perceiver.ts", [
 ]);
 
 assertPresent("src/voice/speaker-id.ts", [
+  /Asset\.fromModule/,
+  /non-owner-voice\.wav/,
   /restoreOwnerEmbedding\(\)/,
   /Restored owner embedding from SecureStore/,
   /SecureStore\.setItemAsync/,
   /SecureStore\.getItemAsync/,
+  /verifyDiagnosticNonOwner\(\)/,
 ]);
 
 assertPresent("src/voice/sherpa-adapter.ts", [
@@ -85,8 +88,10 @@ assertPresent("app/(tabs)/settings.tsx", [
   /Calendar\.createEventAsync/,
   /Calendar smoke succeeded/,
   /speakerIdService\.refreshEnrollmentStatus\(\)/,
+  /speakerIdService\.verifyDiagnosticNonOwner\(\)/,
   /Speaker verify succeeded/,
   /验证已注册声纹/,
+  /nonOwner=\$\{nonOwnerVerified \? "accept" : "reject"\}/,
   /addConversationMessage\(\{\s*role: "assistant",\s*content: result\.response,\s*evidenceUri: result\.evidenceUri,/s,
   /remembered=\$\{result\.remembered \? "yes" : "no"\}/,
   /Visual smoke succeeded/,

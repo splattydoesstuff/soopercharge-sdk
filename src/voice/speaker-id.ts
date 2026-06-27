@@ -1,3 +1,4 @@
+import { Asset } from "expo-asset";
 import * as SecureStore from "expo-secure-store";
 import { sherpaVoiceAdapter } from "./sherpa-adapter";
 
@@ -5,6 +6,7 @@ const OWNER_SPEAKER_NAME = "owner";
 const OWNER_EMBEDDING_META_KEY = "looi.owner_speaker_embedding.meta";
 const OWNER_EMBEDDING_CHUNK_KEY_PREFIX = "looi.owner_speaker_embedding.chunk.";
 const OWNER_EMBEDDING_CHUNK_SIZE = 1800;
+const DIAGNOSTIC_NON_OWNER_AUDIO = require("@/assets/diagnostics/non-owner-voice.wav");
 
 interface StoredSpeakerEmbedding {
   version: 1;
@@ -78,6 +80,24 @@ export class SpeakerIdService {
       embedding,
       this.verificationThreshold
     );
+  }
+
+  async verifyDiagnosticNonOwner(): Promise<boolean> {
+    if (!this.enrolled) {
+      await this.refreshEnrollmentStatus();
+    }
+    if (!this.enrolled) {
+      return false;
+    }
+
+    const asset = Asset.fromModule(DIAGNOSTIC_NON_OWNER_AUDIO);
+    await asset.downloadAsync();
+    const audioUri = asset.localUri || asset.uri;
+    if (!audioUri) {
+      throw new Error("Diagnostic non-owner audio asset is unavailable");
+    }
+
+    return this.verifyFile(audioUri);
   }
 
   async verify(): Promise<boolean> {
