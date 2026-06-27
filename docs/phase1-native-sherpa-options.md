@@ -33,7 +33,8 @@
 - KWS feeder 已对 `AudioData` float payload 缺失做一次性 warning，并将待处理样本限制为最近 3 秒；`VoicePerceiver` 会订阅 `wakeWordEnabled` 偏好变化，运行中同步启动/停止 feeder。
 - 已添加 `scripts/download-sherpa-models.sh` 和 `docs/phase1-sherpa-models.md`，用于下载 SenseVoice/KWS/Speaker 模型到未提交的 `app-models/sherpa-onnx/`，目录结构对齐设备端 `documentDirectory/sherpa-onnx/`。
 - `pnpm exec expo prebuild --clean --no-install` 已通过；`cd ios && pod install` 已通过，CocoaPods autolink 到 `sherpa-onnx-rn (1.3.1)` 并生成 `SherpaOnnxSpec`。
-- Android/iOS 编译尚未通过：Android 卡在本机 JDK/Gradle Foojay `IBM_SEMERU` toolchain error；iOS simulator build 卡在本机 Xcode `IDESimulatorFoundation` 缺 `DVTDownloads.framework`。这些是工具链 blocker，不代表 sherpa native 编译已通过。
+- Android native debug 构建已通过：安装 Homebrew `openjdk@17` 后使用 `JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew :app:assembleDebug`，Gradle 自动安装所需 Android SDK/NDK/CMake，`siteed-audio-studio` 与 `siteed_sherpa-onnx.rn` Kotlin/Java/CMake 编译和 APK 打包均成功。
+- iOS simulator build 仍未通过：本机 Xcode 缺 `DVTDownloads.framework`，卡在 `IDESimulatorFoundation` 加载阶段。该项仍是工具链 blocker，不代表 iOS sherpa native 编译已通过。
 
 ## 后续路线
 
@@ -46,7 +47,8 @@
    - SenseVoice/STT 模型。
    - KWS 模型和 keywords 文件。
    - Speaker embedding 模型。
-   - iOS/Android 真机或模拟器 native build。
+   - iOS 真机或模拟器 native build。
+   - Android 真机设备行为验证。
 4. 设备验收时仍要确认 owner enrollment 持久化：当前实现把 owner embedding 安全保存并启动/刷新时重新 register，但还没有真机重启后验证。
 
 不要把第三方包只加进 `package.json` 后就标记 Step 7 完成；必须完成模型下载、原生构建和设备行为验证。

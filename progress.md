@@ -11,8 +11,8 @@
 | 3 | "钥匙放哪" → 位置+证据截图 | ⏳ | 真实检索已返回视觉记忆和 evidenceUri；记忆列表/对话页真实图片加载还需设备端验证 |
 | 4 | 日历提醒推送 | ⏳ | bootstrapApp 已接 CalendarPerceiver → ReminderScheduler；还需设备权限和通知实测 |
 | 5 | 不确定时说"我不记得" | ✅ | LLM search 无 facts prompt 明确禁止编造；根/服务端 TypeScript 通过 |
-| 6 | 全程免手操作(唤醒词) | ⏳ | JS 已接 native KWS/Speaker API 且不再自动通过；还需原生实现和验证音频采样 |
-| 7 | iOS + Android 双平台 | ⏳ | Expo module 已接入 workspace；还需 native build + 设备实测 |
+| 6 | 全程免手操作(唤醒词) | ⏳ | JS 已接 native KWS/Speaker API 且不再自动通过；Android native build 已通过；还需设备验证 KWS/Speaker/STT 行为 |
+| 7 | iOS + Android 双平台 | ⏳ | Android `:app:assembleDebug` 已通过；iOS native build 仍被本机 Xcode 缺失组件阻塞；双平台设备实测未完成 |
 
 ---
 
@@ -64,7 +64,7 @@
 - [x] `@siteed/sherpa-onnx.rn` 接入 Expo config plugin，确保 native autolinking 可发现
 - [x] TS adapter 暴露 ASR/KWS/Speaker ID 方法
 - [ ] iOS sherpa-onnx KWS + Speaker ID 设备构建验证
-- [ ] Android sherpa-onnx KWS + Speaker ID 设备构建验证
+- [x] Android sherpa-onnx KWS + Speaker ID native debug 构建验证：`JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew :app:assembleDebug` 通过
 - [x] 添加 KWS/Speaker/SenseVoice 模型下载脚本和未提交资产目录
 - [ ] 执行模型下载并确认设备运行时路径
 - [x] 调研 RN sherpa 候选包并记录接入风险到 `docs/phase1-native-sherpa-options.md`
@@ -82,7 +82,7 @@
 - [x] `src/voice/stt.ts` 接设备端 SenseVoice ASR adapter，移除服务器 STT HTTP 调用
 - [x] `pnpm exec expo prebuild --clean --no-install` 生成 iOS/Android 原生工程通过
 - [x] `cd ios && pod install` 通过，已 autolink/install `sherpa-onnx-rn (1.3.1)` 并生成 `SherpaOnnxSpec`
-- [ ] Android `:app:assembleDebug` 被本机 JDK/Gradle Foojay `IBM_SEMERU` toolchain error 阻塞，未进入 native 编译
+- [x] Android `:app:assembleDebug` 通过；本机已安装 Homebrew `openjdk@17`，并自动安装 Android SDK/NDK/CMake 依赖
 - [ ] iOS simulator `xcodebuild` 被本机 Xcode `IDESimulatorFoundation`/`DVTDownloads.framework` 缺失阻塞，未进入 native 编译
 
 ## Step 8: CalendarPerceiver → ReminderScheduler 接线
@@ -100,6 +100,7 @@
 - [x] `pnpm exec tsc --noEmit`
 - [x] `cd server && pnpm build`
 - [x] `cd server && pnpm test`
+- [x] `cd android && JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew :app:assembleDebug`
 - [ ] APP 手动冒烟测试：纯语音、视觉记事、检索+证据、日历提醒、KWS+声纹、iOS+Android
 
 ## Step 10: 清理 + 验收
