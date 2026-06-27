@@ -18,7 +18,14 @@
   - Expo module，包含 STT/KWS/Speaker 等 API 和预编译库。
   - 包体更大，iOS 静态库明显增加工程体积。
 
-建议路线：
+## 已执行决策
+
+- 已引入 `@siteed/sherpa-onnx.rn@1.3.1`。
+- 已注册 Expo config plugin：`@siteed/sherpa-onnx.rn/app.plugin`。
+- 已创建 `src/voice/sherpa-adapter.ts`，统一封装 ASR/KWS/Speaker 的配置和调用。
+- 已将 `src/voice/stt.ts` 从服务端 `/api/stt/transcribe` 改为本地 SenseVoice ASR adapter：`SherpaOnnx.ASR.recognizeFromFile()`。
+
+## 后续路线
 
 1. 优先评估 `@siteed/sherpa-onnx.rn` 是否能同时替代当前 `expo-sherpa-kws` 的 KWS/SpeakerId scaffold，并承接设备端 STT。
 2. 若选择 `@siteed/sherpa-onnx.rn`，先创建 adapter 层，避免业务代码直接依赖第三方 API：

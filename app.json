@@ -26,6 +26,7 @@
     },
     "plugins": [
       "expo-router",
+      "@siteed/sherpa-onnx.rn/app.plugin",
       [
         "expo-splash-screen",
         {

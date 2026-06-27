@@ -67,11 +67,12 @@
 - [ ] Android sherpa-onnx KWS + Speaker ID 真实现
 - [ ] 下载 KWS/Speaker/SenseVoice 模型
 - [x] 调研 RN sherpa 候选包并记录接入风险到 `docs/phase1-native-sherpa-options.md`
+- [x] 引入 `@siteed/sherpa-onnx.rn` 并创建 `src/voice/sherpa-adapter.ts` 统一 ASR/KWS/Speaker 调用
 - [x] `src/voice/wakeword.ts` 接 native KWS API，按钮仅保留手动触发入口
 - [x] `src/voice/speaker-id.ts` 接 native 声纹 API，移除永远通过降级
 - [x] `expo-sherpa-kws` JS fallback 不再模拟 KWS/Speaker 通过，缺原生模块时明确失败
 - [ ] VoicePerceiver 唤醒后采集声纹验证音频样本
-- [ ] `src/voice/stt.ts` 接设备端 SenseVoice，移除服务器 STT 降级
+- [x] `src/voice/stt.ts` 接设备端 SenseVoice ASR adapter，移除服务器 STT HTTP 调用
 
 ## Step 8: CalendarPerceiver → ReminderScheduler 接线
 - [x] 创建 `src/core/app-bootstrap.ts`

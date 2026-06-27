@@ -1,18 +1,13 @@
 import { Audio } from "expo-av";
+import { sherpaVoiceAdapter } from "./sherpa-adapter";
 
 /**
  * STT Service — Speech-to-Text
- * Phase 1: Uses server-side Whisper-compatible API (degraded from sherpa-onnx)
- * The server at LLM_BASE_URL provides a Whisper-compatible endpoint
+ * Phase 1 target: device-side sherpa-onnx SenseVoice ASR.
  */
 export class STTService {
   private recording: Audio.Recording | null = null;
   private isRecording = false;
-  private serverUrl: string;
-
-  constructor() {
-    this.serverUrl = process.env.EXPO_PUBLIC_LOOI_SERVER_URL || "http://192.168.3.71:8080";
-  }
 
   /**
    * Start recording audio
@@ -56,7 +51,6 @@ export class STTService {
         throw new Error("No recording URI");
       }
 
-      // Send to server for transcription
       return await this.transcribeAudio(uri);
     } catch (error) {
       this.isRecording = false;
@@ -86,31 +80,10 @@ export class STTService {
   }
 
   /**
-   * Send audio file to server for transcription
+   * Transcribe the recorded audio file on device with sherpa-onnx.
    */
   private async transcribeAudio(audioUri: string): Promise<string> {
-    const formData = new FormData();
-    formData.append("file", {
-      uri: audioUri,
-      type: "audio/m4a",
-      name: "recording.m4a",
-    } as unknown as Blob);
-    formData.append("language", "zh");
-
-    const response = await fetch(`${this.serverUrl}/api/stt/transcribe`, {
-      method: "POST",
-      body: formData,
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`STT server error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.text || "";
+    return sherpaVoiceAdapter.transcribeFile(audioUri);
   }
 }
 
