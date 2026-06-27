@@ -36,7 +36,7 @@ let nativeModule: ExpoSherpaKwsNativeModule | null = null;
 try {
   nativeModule = requireNativeModule<ExpoSherpaKwsNativeModule>("ExpoSherpaKws");
 } catch {
-  console.warn("[expo-sherpa-kws] Native module not available. KWS/SpeakerID will be simulated.");
+  console.warn("[expo-sherpa-kws] Native module not available. KWS/SpeakerID disabled.");
 }
 
 /**
@@ -44,8 +44,7 @@ try {
  */
 export async function startKeywordListening(modelDir: string, keywordsFile: string): Promise<void> {
   if (!nativeModule) {
-    console.warn("[KWS] Native module not available, using simulated mode");
-    return;
+    throw new Error("ExpoSherpaKws native module is not available");
   }
   return nativeModule.startKWS(modelDir, keywordsFile);
 }
@@ -74,8 +73,7 @@ export function onKeywordDetected(callback: (event: KeywordDetectedEvent) => voi
  */
 export async function enrollSpeaker(audioSamples: number[]): Promise<boolean> {
   if (!nativeModule) {
-    console.warn("[SpeakerID] Native module not available");
-    return true;
+    throw new Error("ExpoSherpaKws native module is not available");
   }
   return nativeModule.enrollSpeaker(audioSamples);
 }
@@ -85,7 +83,7 @@ export async function enrollSpeaker(audioSamples: number[]): Promise<boolean> {
  */
 export async function verifySpeaker(audioSamples: number[]): Promise<SpeakerVerifyResult> {
   if (!nativeModule) {
-    return { passed: true, score: 1.0 };
+    throw new Error("ExpoSherpaKws native module is not available");
   }
   return nativeModule.verifySpeaker(audioSamples);
 }

@@ -52,7 +52,7 @@ export class VoicePerceiver extends BasePerceiver {
     const userStore = useUserStore.getState();
     const conversationStore = useConversationStore.getState();
 
-    // Step 1: Verify speaker (Phase 1: always passes)
+    // Step 1: Verify speaker before accepting owner-only voice commands.
     userStore.setVoiceState("verifying");
     const isOwner = await speakerIdService.verify();
     if (!isOwner) {

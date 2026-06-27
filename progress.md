@@ -68,6 +68,7 @@
 - [ ] 下载 KWS/Speaker/SenseVoice 模型
 - [x] `src/voice/wakeword.ts` 接 native KWS API，按钮仅保留手动触发入口
 - [x] `src/voice/speaker-id.ts` 接 native 声纹 API，移除永远通过降级
+- [x] `expo-sherpa-kws` JS fallback 不再模拟 KWS/Speaker 通过，缺原生模块时明确失败
 - [ ] VoicePerceiver 唤醒后采集声纹验证音频样本
 - [ ] `src/voice/stt.ts` 接设备端 SenseVoice，移除服务器 STT 降级
 

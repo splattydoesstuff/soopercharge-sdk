@@ -1,5 +1,7 @@
 import ExpoModulesCore
 
+private let notImplementedMessage = "ExpoSherpaKws native sherpa-onnx implementation is not available"
+
 public class ExpoSherpaKwsModule: Module {
   public func definition() -> ModuleDefinition {
     Name("ExpoSherpaKws")
@@ -12,6 +14,7 @@ public class ExpoSherpaKwsModule: Module {
       // - Load keywords from keywordsFile
       // - Start AVAudioEngine tap feeding audio to spotter
       print("[ExpoSherpaKws] startKWS called with modelDir: \(modelDir)")
+      throw Exception(name: "ERR_SHERPA_KWS_UNIMPLEMENTED", description: notImplementedMessage)
     }
 
     AsyncFunction("stopKWS") {
@@ -25,14 +28,14 @@ public class ExpoSherpaKwsModule: Module {
       // - Average with existing enrollments
       // - Store in Keychain/SecureStore
       print("[ExpoSherpaKws] enrollSpeaker called with \(audioSamples.count) samples")
-      return true
+      throw Exception(name: "ERR_SHERPA_SPEAKER_UNIMPLEMENTED", description: notImplementedMessage)
     }
 
     AsyncFunction("verifySpeaker") { (audioSamples: [Double]) -> [String: Any] in
       // TODO: Extract embedding, cosine compare with enrolled
       // - Return { passed: Bool, score: Float }
       print("[ExpoSherpaKws] verifySpeaker called")
-      return ["passed": true, "score": 1.0]
+      throw Exception(name: "ERR_SHERPA_SPEAKER_UNIMPLEMENTED", description: notImplementedMessage)
     }
 
     AsyncFunction("getEnrollmentStatus") { () -> Bool in
