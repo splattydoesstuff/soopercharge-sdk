@@ -38,7 +38,7 @@ export interface Observation {
   /** Text content: voice transcript or vision description */
   content: string;
 
-  /** Evidence URI (Supabase Storage path) */
+  /** Evidence URI (local server HTTP path) */
   evidenceUri?: string;
 
   /** Metadata */

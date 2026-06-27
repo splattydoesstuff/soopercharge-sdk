@@ -28,7 +28,7 @@
 - [x] `server/data/evidence/` 通过 `server/data/` gitignore 排除
 - [x] 创建 `server/src/routes/evidence.ts`
 - [x] 注册 `/api/evidence`
-- [ ] 上传图片后验证 URL 可打开
+- [x] 上传图片后验证 URL 可打开
 
 ## Step 3: 宿主机 — MiniCPM-V 本地推理
 - [x] 创建 `server/scripts/start-vision.sh`
@@ -89,8 +89,8 @@
 - [x] 删除 `@supabase/supabase-js` 依赖
 - [x] 删除 `supabase/` 目录（如存在）
 - [ ] 删除 `server/src/routes/stt.ts`（等设备端 STT 完成后）
-- [ ] 更新 `.env.example`
-- [ ] 更新 README（Docker + 宿主机部署说明）
+- [x] 更新 `.env.example`
+- [x] 更新 README（Docker + 宿主机部署说明）
 - [ ] 7 条验收标准逐条确认
 - [ ] commit + tag `phase1-complete`
 
