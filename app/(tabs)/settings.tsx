@@ -11,24 +11,80 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useUserStore } from "@/src/store/user";
 import { checkServerHealth } from "@/src/server-api/client";
+import { speakerIdService } from "@/src/voice/speaker-id";
+import { sttService } from "@/src/voice/stt";
 
 export default function SettingsScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
-  const { preferences, updatePreferences, serverConnected, setServerConnected, name } =
-    useUserStore();
-  const [checking, setChecking] = useState(false);
+  const {
+    preferences,
+    updatePreferences,
+    serverConnected,
+    setServerConnected,
+    name,
+    voiceEnrolled,
+    setVoiceEnrolled,
+    setVoiceState,
+  } = useUserStore();
+  const [enrolling, setEnrolling] = useState(false);
+  const [savingEnrollment, setSavingEnrollment] = useState(false);
+  const [enrollmentError, setEnrollmentError] = useState<string | null>(null);
 
   const checkConnection = useCallback(async () => {
-    setChecking(true);
     const connected = await checkServerHealth();
     setServerConnected(connected);
-    setChecking(false);
   }, [setServerConnected]);
 
   useEffect(() => {
     checkConnection();
   }, [checkConnection]);
+
+  useEffect(() => {
+    speakerIdService
+      .refreshEnrollmentStatus()
+      .then(setVoiceEnrolled)
+      .catch(() => setVoiceEnrolled(false));
+  }, [setVoiceEnrolled]);
+
+  const startEnrollment = useCallback(async () => {
+    if (enrolling || savingEnrollment) return;
+
+    setEnrollmentError(null);
+    setEnrolling(true);
+    setVoiceState("listening");
+
+    try {
+      await sttService.startRecording();
+    } catch (error) {
+      console.error("[Settings] Failed to start speaker enrollment:", error);
+      setEnrollmentError("录音启动失败");
+      setEnrolling(false);
+      setVoiceState("sleeping");
+    }
+  }, [enrolling, savingEnrollment, setVoiceState]);
+
+  const finishEnrollment = useCallback(async () => {
+    if (!enrolling) return;
+
+    setEnrolling(false);
+    setSavingEnrollment(true);
+    setVoiceState("verifying");
+
+    try {
+      const audioUri = await sttService.stopRecording();
+      await speakerIdService.enrollFromFile(audioUri);
+      setVoiceEnrolled(true);
+      setEnrollmentError(null);
+    } catch (error) {
+      console.error("[Settings] Failed to save speaker enrollment:", error);
+      setEnrollmentError("声纹保存失败");
+      setVoiceEnrolled(false);
+    } finally {
+      setSavingEnrollment(false);
+      setVoiceState("sleeping");
+    }
+  }, [enrolling, setVoiceEnrolled, setVoiceState]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: isDark ? "#111827" : "#F9FAFB" }]}>
@@ -45,6 +101,29 @@ export default function SettingsScreen() {
                 {name}
               </Text>
             </View>
+            <View style={styles.row}>
+              <Text style={[styles.label, { color: isDark ? "#D1D5DB" : "#374151" }]}>
+                声纹
+              </Text>
+              <Text style={[styles.value, { color: isDark ? "#F9FAFB" : "#111827" }]}>
+                {voiceEnrolled ? "已注册" : "未注册"}
+              </Text>
+            </View>
+            <Pressable
+              style={[
+                styles.enrollButton,
+                enrolling && styles.enrollButtonActive,
+                savingEnrollment && styles.disabledButton,
+              ]}
+              onPressIn={startEnrollment}
+              onPressOut={finishEnrollment}
+              disabled={savingEnrollment}
+            >
+              <Text style={styles.enrollButtonText}>
+                {savingEnrollment ? "保存中..." : enrolling ? "松开完成" : "按住录入本次会话声纹"}
+              </Text>
+            </Pressable>
+            {enrollmentError ? <Text style={styles.errorText}>{enrollmentError}</Text> : null}
           </View>
         </View>
 
@@ -66,7 +145,7 @@ export default function SettingsScreen() {
                   ]}
                 />
                 <Text style={[styles.value, { color: isDark ? "#F9FAFB" : "#111827" }]}>
-                  {checking ? "检查中..." : serverConnected ? "已连接" : "未连接"}
+                  {serverConnected ? "已连接" : "未连接"}
                 </Text>
               </View>
             </View>
@@ -158,6 +237,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   checkButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "500" },
+  enrollButton: {
+    backgroundColor: "#6D28D9",
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  enrollButtonActive: { backgroundColor: "#EF4444" },
+  disabledButton: { opacity: 0.6 },
+  enrollButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "600" },
+  errorText: { color: "#EF4444", fontSize: 13 },
   versionContainer: { alignItems: "center", paddingVertical: 24 },
   versionText: { fontSize: 13 },
 });

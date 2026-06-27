@@ -52,19 +52,8 @@ export class VoicePerceiver extends BasePerceiver {
     const userStore = useUserStore.getState();
     const conversationStore = useConversationStore.getState();
 
-    // Step 1: Verify speaker before accepting owner-only voice commands.
-    userStore.setVoiceState("verifying");
-    const isOwner = await speakerIdService.verify();
-    if (!isOwner) {
-      conversationStore.addMessage({
-        role: "assistant",
-        content: "还没有完成声纹验证，暂时不能继续语音记事。",
-      });
-      userStore.setVoiceState("sleeping");
-      return;
-    }
-
-    // Step 2: Start listening
+    // Step 1: Start listening. Owner verification runs against this same audio file
+    // before transcription, so accepted commands still require speaker verification.
     userStore.setVoiceState("listening");
     conversationStore.setListening(true);
 
@@ -91,8 +80,22 @@ export class VoicePerceiver extends BasePerceiver {
     conversationStore.setProcessing(true);
 
     try {
-      // Step 3: Transcribe
-      const transcript = await sttService.stopAndTranscribe();
+      // Step 2: Stop recording and verify owner before accepting the command.
+      const audioUri = await sttService.stopRecording();
+
+      userStore.setVoiceState("verifying");
+      const isOwner = await speakerIdService.verifyFile(audioUri);
+      if (!isOwner) {
+        conversationStore.addMessage({
+          role: "assistant",
+          content: "还没有完成声纹验证，暂时不能继续语音记事。",
+        });
+        return;
+      }
+
+      // Step 3: Transcribe the same verified audio.
+      userStore.setVoiceState("processing");
+      const transcript = await sttService.transcribeFile(audioUri);
       if (!transcript.trim()) {
         userStore.setVoiceState("sleeping");
         conversationStore.setProcessing(false);

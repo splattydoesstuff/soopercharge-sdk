@@ -36,6 +36,14 @@ export class STTService {
    * Stop recording and transcribe
    */
   async stopAndTranscribe(): Promise<string> {
+    const uri = await this.stopRecording();
+    return await this.transcribeFile(uri);
+  }
+
+  /**
+   * Stop recording and return the local audio file URI without transcribing it.
+   */
+  async stopRecording(): Promise<string> {
     if (!this.recording) {
       throw new Error("No active recording");
     }
@@ -51,11 +59,11 @@ export class STTService {
         throw new Error("No recording URI");
       }
 
-      return await this.transcribeAudio(uri);
+      return uri;
     } catch (error) {
       this.isRecording = false;
       this.recording = null;
-      console.error("[STT] Failed to transcribe:", error);
+      console.error("[STT] Failed to stop recording:", error);
       throw error;
     }
   }
@@ -82,7 +90,7 @@ export class STTService {
   /**
    * Transcribe the recorded audio file on device with sherpa-onnx.
    */
-  private async transcribeAudio(audioUri: string): Promise<string> {
+  async transcribeFile(audioUri: string): Promise<string> {
     return sherpaVoiceAdapter.transcribeFile(audioUri);
   }
 }

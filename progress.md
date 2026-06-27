@@ -70,7 +70,9 @@
 - [x] 引入 `@siteed/sherpa-onnx.rn` 并创建 `src/voice/sherpa-adapter.ts` 统一 ASR/KWS/Speaker 调用
 - [x] `src/voice/wakeword.ts` 接 `@siteed/sherpa-onnx.rn` KWS adapter，支持由音频采集层喂 PCM 样本
 - [x] `src/voice/speaker-id.ts` 接 `@siteed/sherpa-onnx.rn` SpeakerId，支持样本/文件 embedding 注册与验证
-- [ ] VoicePerceiver 唤醒后采集声纹验证音频样本
+- [x] VoicePerceiver 使用当前命令录音文件做 owner 声纹验证，通过后才转写和处理命令
+- [x] 设置页提供本次会话 owner 声纹录入入口，录音文件写入 SpeakerId manager
+- [ ] 声纹注册跨 App 重启持久化验证/实现
 - [ ] 常驻 KWS 音频采集 feeder：采集麦克风 PCM 并调用 `wakewordService.acceptSamples()`
 - [x] `src/voice/stt.ts` 接设备端 SenseVoice ASR adapter，移除服务器 STT HTTP 调用
 

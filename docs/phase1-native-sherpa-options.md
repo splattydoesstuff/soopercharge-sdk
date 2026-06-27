@@ -25,6 +25,9 @@
 - 已删除未实现的 `native-modules/expo-sherpa-kws` scaffold。
 - 已创建 `src/voice/sherpa-adapter.ts`，统一封装 ASR/KWS/Speaker 的配置和调用。
 - 已将 `src/voice/stt.ts` 从服务端 `/api/stt/transcribe` 改为本地 SenseVoice ASR adapter：`SherpaOnnx.ASR.recognizeFromFile()`。
+- 已将 `VoicePerceiver.finishListening()` 改为先停止录音拿到音频文件，再调用 `speakerIdService.verifyFile()` 做 owner gate，通过后复用同一个文件做 SenseVoice 转写。
+- 已在设置页提供本次会话 owner 声纹录入入口：按住录音后调用 `speakerIdService.enrollFromFile()` 注册到 `@siteed/sherpa-onnx.rn` 的 SpeakerId manager。
+- 已确认 `@siteed/sherpa-onnx.rn` 提供 KWS/Speaker/ASR 推理 API，但不提供麦克风 PCM 采集器；常驻唤醒词还需要单独的实时音频采集层把 mono float PCM 喂给 `wakewordService.acceptSamples()`。
 
 ## 后续路线
 
@@ -38,5 +41,6 @@
    - KWS 模型和 keywords 文件。
    - Speaker embedding 模型。
    - iOS/Android 真机或模拟器 native build。
+4. 还需要确认/实现 owner enrollment 持久化：当前第三方 SpeakerId manager 暴露 `registerSpeaker/getSpeakers/verifySpeaker`，但未看到磁盘持久化 API。设备验收时要确认 App 重启后是否仍能通过；若不能，需要把 owner embedding 安全保存并启动时重新 register。
 
 不要把第三方包只加进 `package.json` 后就标记 Step 7 完成；必须完成模型下载、原生构建和设备行为验证。
