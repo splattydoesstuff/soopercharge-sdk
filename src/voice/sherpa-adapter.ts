@@ -4,11 +4,11 @@ import SherpaOnnx, {
   type SpeakerIdModelConfig,
 } from "@siteed/sherpa-onnx.rn";
 
-const DEFAULT_STT_MODEL_DIR = "sherpa-onnx/sensevoice";
+const DEFAULT_STT_MODEL_DIR = "sherpa-onnx/asr/sensevoice";
 const DEFAULT_STT_MODEL_FILE = "model.int8.onnx";
 const DEFAULT_STT_TOKENS_FILE = "tokens.txt";
-const DEFAULT_KWS_MODEL_DIR = "sherpa-onnx/kws";
-const DEFAULT_SPEAKER_MODEL_DIR = "sherpa-onnx/speaker";
+const DEFAULT_KWS_MODEL_DIR = "sherpa-onnx/kws/looi";
+const DEFAULT_SPEAKER_MODEL_DIR = "sherpa-onnx/speaker-id/looi";
 const DEFAULT_SPEAKER_MODEL_FILE = "model.onnx";
 const DEFAULT_KEYWORDS_FILE = "keywords.txt";
 const DEFAULT_SAMPLE_RATE = 16000;

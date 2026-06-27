@@ -65,7 +65,8 @@
 - [x] TS adapter 暴露 ASR/KWS/Speaker ID 方法
 - [ ] iOS sherpa-onnx KWS + Speaker ID 设备构建验证
 - [ ] Android sherpa-onnx KWS + Speaker ID 设备构建验证
-- [ ] 下载 KWS/Speaker/SenseVoice 模型
+- [x] 添加 KWS/Speaker/SenseVoice 模型下载脚本和未提交资产目录
+- [ ] 执行模型下载并确认设备运行时路径
 - [x] 调研 RN sherpa 候选包并记录接入风险到 `docs/phase1-native-sherpa-options.md`
 - [x] 引入 `@siteed/sherpa-onnx.rn` 并创建 `src/voice/sherpa-adapter.ts` 统一 ASR/KWS/Speaker 调用
 - [x] `src/voice/wakeword.ts` 接 `@siteed/sherpa-onnx.rn` KWS adapter，支持由音频采集层喂 PCM 样本
@@ -75,6 +76,10 @@
 - [ ] 声纹注册跨 App 重启持久化验证/实现
 - [ ] 常驻 KWS 音频采集 feeder：采集麦克风 PCM 并调用 `wakewordService.acceptSamples()`
 - [x] `src/voice/stt.ts` 接设备端 SenseVoice ASR adapter，移除服务器 STT HTTP 调用
+- [x] `pnpm exec expo prebuild --clean --no-install` 生成 iOS/Android 原生工程通过
+- [x] `cd ios && pod install` 通过，已 autolink/install `sherpa-onnx-rn (1.3.1)` 并生成 `SherpaOnnxSpec`
+- [ ] Android `:app:assembleDebug` 被本机 JDK/Gradle Foojay `IBM_SEMERU` toolchain error 阻塞，未进入 native 编译
+- [ ] iOS simulator `xcodebuild` 被本机 Xcode `IDESimulatorFoundation`/`DVTDownloads.framework` 缺失阻塞，未进入 native 编译
 
 ## Step 8: CalendarPerceiver → ReminderScheduler 接线
 - [x] 创建 `src/core/app-bootstrap.ts`

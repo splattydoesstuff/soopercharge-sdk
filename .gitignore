@@ -50,7 +50,10 @@ server/dist/
 
 # Models (large files)
 server/models/*.gguf
-native-modules/sherpa-onnx/models/*.onnx
+app-models/sherpa-onnx/**
+!app-models/sherpa-onnx/
+!app-models/sherpa-onnx/**/
+!app-models/sherpa-onnx/**/.gitkeep
 
 # pnpm
 pnpm-lock.yaml

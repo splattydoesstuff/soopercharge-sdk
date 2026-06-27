@@ -28,6 +28,9 @@
 - 已将 `VoicePerceiver.finishListening()` 改为先停止录音拿到音频文件，再调用 `speakerIdService.verifyFile()` 做 owner gate，通过后复用同一个文件做 SenseVoice 转写。
 - 已在设置页提供本次会话 owner 声纹录入入口：按住录音后调用 `speakerIdService.enrollFromFile()` 注册到 `@siteed/sherpa-onnx.rn` 的 SpeakerId manager。
 - 已确认 `@siteed/sherpa-onnx.rn` 提供 KWS/Speaker/ASR 推理 API，但不提供麦克风 PCM 采集器；常驻唤醒词还需要单独的实时音频采集层把 mono float PCM 喂给 `wakewordService.acceptSamples()`。
+- 已添加 `scripts/download-sherpa-models.sh` 和 `docs/phase1-sherpa-models.md`，用于下载 SenseVoice/KWS/Speaker 模型到未提交的 `app-models/sherpa-onnx/`，目录结构对齐设备端 `documentDirectory/sherpa-onnx/`。
+- `pnpm exec expo prebuild --clean --no-install` 已通过；`cd ios && pod install` 已通过，CocoaPods autolink 到 `sherpa-onnx-rn (1.3.1)` 并生成 `SherpaOnnxSpec`。
+- Android/iOS 编译尚未通过：Android 卡在本机 JDK/Gradle Foojay `IBM_SEMERU` toolchain error；iOS simulator build 卡在本机 Xcode `IDESimulatorFoundation` 缺 `DVTDownloads.framework`。这些是工具链 blocker，不代表 sherpa native 编译已通过。
 
 ## 后续路线
 
