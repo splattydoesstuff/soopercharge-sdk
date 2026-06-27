@@ -66,6 +66,7 @@
 - [ ] iOS sherpa-onnx KWS + Speaker ID 真实现
 - [ ] Android sherpa-onnx KWS + Speaker ID 真实现
 - [ ] 下载 KWS/Speaker/SenseVoice 模型
+- [x] 调研 RN sherpa 候选包并记录接入风险到 `docs/phase1-native-sherpa-options.md`
 - [x] `src/voice/wakeword.ts` 接 native KWS API，按钮仅保留手动触发入口
 - [x] `src/voice/speaker-id.ts` 接 native 声纹 API，移除永远通过降级
 - [x] `expo-sherpa-kws` JS fallback 不再模拟 KWS/Speaker 通过，缺原生模块时明确失败

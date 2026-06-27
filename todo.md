@@ -5,4 +5,5 @@
 - [ ] 原生 KWS：`expo-sherpa-kws` Swift/Kotlin 仍是 TODO，需要实现 sherpa-onnx 音频监听和事件回调。
 - [ ] 原生 Speaker ID：`expo-sherpa-kws` Swift/Kotlin 仍是 TODO，需要实现声纹 embedding 注册/验证；VoicePerceiver 还需采集验证音频样本。
 - [ ] 设备端 STT：`src/voice/stt.ts` 仍走 `/api/stt/transcribe`，需要改 SenseVoice 本地推理后再删除服务端 STT。
+- [ ] Native sherpa 依赖决策：优先评估 `@siteed/sherpa-onnx.rn@1.3.1` 是否替代当前 `expo-sherpa-kws` scaffold，详见 `docs/phase1-native-sherpa-options.md`。
 - [ ] iOS + Android 原生构建和设备冒烟测试。
