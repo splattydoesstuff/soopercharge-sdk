@@ -75,7 +75,10 @@
 - [x] 设置页提供本次会话 owner 声纹录入入口，录音文件写入 SpeakerId manager
 - [x] 声纹注册 embedding 分块写入 SecureStore，启动/刷新 enrollment 时自动恢复到 SpeakerId manager
 - [ ] 声纹注册跨 App 重启设备验证
-- [ ] 常驻 KWS 音频采集 feeder：采集麦克风 PCM 并调用 `wakewordService.acceptSamples()`
+- [x] 常驻 KWS 音频采集 feeder：使用 `@siteed/audio-studio` 采集 16k mono float PCM 并调用 `wakewordService.acceptSamples()`
+- [x] `@siteed/audio-studio` Expo config plugin 已用最小权限接入，提供麦克风权限并关闭后台录音/通知/蓝牙/电话权限
+- [x] KWS feeder 已处理运行中偏好切换、float PCM payload fallback、队列上限，避免静默断流和无限堆积
+- [ ] 常驻 KWS 音频采集 feeder 设备验证：确认与 STT 录音互斥切换、唤醒后恢复监听
 - [x] `src/voice/stt.ts` 接设备端 SenseVoice ASR adapter，移除服务器 STT HTTP 调用
 - [x] `pnpm exec expo prebuild --clean --no-install` 生成 iOS/Android 原生工程通过
 - [x] `cd ios && pod install` 通过，已 autolink/install `sherpa-onnx-rn (1.3.1)` 并生成 `SherpaOnnxSpec`

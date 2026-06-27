@@ -28,7 +28,9 @@
 - 已将 `VoicePerceiver.finishListening()` 改为先停止录音拿到音频文件，再调用 `speakerIdService.verifyFile()` 做 owner gate，通过后复用同一个文件做 SenseVoice 转写。
 - 已在设置页提供本次会话 owner 声纹录入入口：按住录音后调用 `speakerIdService.enrollFromFile()` 注册到 `@siteed/sherpa-onnx.rn` 的 SpeakerId manager。
 - 已将 owner speaker embedding 分块写入 `expo-secure-store`；`refreshEnrollmentStatus()` 会在 native SpeakerId manager 为空时从 SecureStore 恢复并重新 register。
-- 已确认 `@siteed/sherpa-onnx.rn` 提供 KWS/Speaker/ASR 推理 API，但不提供麦克风 PCM 采集器；常驻唤醒词还需要单独的实时音频采集层把 mono float PCM 喂给 `wakewordService.acceptSamples()`。
+- 已确认 `@siteed/sherpa-onnx.rn` 提供 KWS/Speaker/ASR 推理 API，但不提供麦克风 PCM 采集器；已选择 `@siteed/audio-studio` 作为实时采集层，在 `src/voice/kws-audio-feeder.ts` 采集 16k mono float PCM 并喂给 `wakewordService.acceptSamples()`。
+- 已在 Expo config 注册 `@siteed/audio-studio` plugin，并关闭后台录音、通知、蓝牙设备检测和电话状态权限；当前 KWS feeder 只按前台麦克风采集配置，设备后台常驻能力不作为 Phase 1 验收前提。
+- KWS feeder 已对 `AudioData` float payload 缺失做一次性 warning，并将待处理样本限制为最近 3 秒；`VoicePerceiver` 会订阅 `wakeWordEnabled` 偏好变化，运行中同步启动/停止 feeder。
 - 已添加 `scripts/download-sherpa-models.sh` 和 `docs/phase1-sherpa-models.md`，用于下载 SenseVoice/KWS/Speaker 模型到未提交的 `app-models/sherpa-onnx/`，目录结构对齐设备端 `documentDirectory/sherpa-onnx/`。
 - `pnpm exec expo prebuild --clean --no-install` 已通过；`cd ios && pod install` 已通过，CocoaPods autolink 到 `sherpa-onnx-rn (1.3.1)` 并生成 `SherpaOnnxSpec`。
 - Android/iOS 编译尚未通过：Android 卡在本机 JDK/Gradle Foojay `IBM_SEMERU` toolchain error；iOS simulator build 卡在本机 Xcode `IDESimulatorFoundation` 缺 `DVTDownloads.framework`。这些是工具链 blocker，不代表 sherpa native 编译已通过。

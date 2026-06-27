@@ -2,6 +2,7 @@ import { BasePerceiver } from "../core/perceiver";
 import { createObservation } from "../core/observation";
 import { classifyCategory, hasVisualReference } from "../memory/metadata";
 import { wakewordService } from "../voice/wakeword";
+import { kwsAudioFeeder } from "../voice/kws-audio-feeder";
 import { speakerIdService } from "../voice/speaker-id";
 import { sttService } from "../voice/stt";
 import { ttsService } from "../voice/tts";
@@ -19,6 +20,7 @@ import { cameraPerceiver } from "./camera-perceiver";
 export class VoicePerceiver extends BasePerceiver {
   name = "voice";
   private unsubWakeword: (() => void) | null = null;
+  private unsubPreferences: (() => void) | null = null;
 
   async start(): Promise<void> {
     this.isActive = true;
@@ -27,14 +29,31 @@ export class VoicePerceiver extends BasePerceiver {
     this.unsubWakeword = wakewordService.onWakeword(() => {
       this.handleWakeword();
     });
+
+    this.unsubPreferences = useUserStore.subscribe((state, previousState) => {
+      if (state.preferences.wakeWordEnabled === previousState.preferences.wakeWordEnabled) {
+        return;
+      }
+
+      this.syncWakewordFeeder();
+    });
+
+    if (useUserStore.getState().preferences.wakeWordEnabled) {
+      await this.startWakewordFeeder();
+    }
   }
 
   async stop(): Promise<void> {
     this.isActive = false;
+    await kwsAudioFeeder.stop();
     await wakewordService.stop();
     if (this.unsubWakeword) {
       this.unsubWakeword();
       this.unsubWakeword = null;
+    }
+    if (this.unsubPreferences) {
+      this.unsubPreferences();
+      this.unsubPreferences = null;
     }
   }
 
@@ -52,17 +71,23 @@ export class VoicePerceiver extends BasePerceiver {
     const userStore = useUserStore.getState();
     const conversationStore = useConversationStore.getState();
 
+    if (conversationStore.isListening || conversationStore.isProcessing || userStore.voiceState !== "sleeping") {
+      return;
+    }
+
     // Step 1: Start listening. Owner verification runs against this same audio file
     // before transcription, so accepted commands still require speaker verification.
     userStore.setVoiceState("listening");
     conversationStore.setListening(true);
 
     try {
+      await kwsAudioFeeder.stop();
       await sttService.startRecording();
     } catch (error) {
       console.error("[VoicePerceiver] Failed to start recording:", error);
       userStore.setVoiceState("sleeping");
       conversationStore.setListening(false);
+      await this.restartWakewordFeederIfNeeded();
       return;
     }
   }
@@ -182,6 +207,46 @@ export class VoicePerceiver extends BasePerceiver {
       userStore.setVoiceState("sleeping");
       conversationStore.setProcessing(false);
       conversationStore.setSpeaking(false);
+      await this.restartWakewordFeederIfNeeded();
+    }
+  }
+
+  private async startWakewordFeeder(): Promise<void> {
+    try {
+      await kwsAudioFeeder.start();
+    } catch (error) {
+      console.warn("[VoicePerceiver] Wakeword audio feeder unavailable:", error);
+    }
+  }
+
+  private async restartWakewordFeederIfNeeded(): Promise<void> {
+    if (!this.shouldRunWakewordFeeder()) {
+      return;
+    }
+
+    await this.startWakewordFeeder();
+  }
+
+  private shouldRunWakewordFeeder(): boolean {
+    const userStore = useUserStore.getState();
+    const conversationStore = useConversationStore.getState();
+
+    return (
+      this.isActive &&
+      userStore.preferences.wakeWordEnabled &&
+      userStore.voiceState === "sleeping" &&
+      !conversationStore.isListening &&
+      !conversationStore.isProcessing
+    );
+  }
+
+  private syncWakewordFeeder(): void {
+    if (this.shouldRunWakewordFeeder()) {
+      this.startWakewordFeeder();
+    } else {
+      kwsAudioFeeder.stop().catch((error) => {
+        console.warn("[VoicePerceiver] Failed to stop wakeword audio feeder:", error);
+      });
     }
   }
 }
