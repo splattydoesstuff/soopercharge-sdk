@@ -1,14 +1,14 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   StyleSheet,
   View,
   FlatList,
   Text,
   useColorScheme,
-  SafeAreaView,
-  TouchableOpacity,
+  Pressable,
   RefreshControl,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { memoryService } from "@/src/server-api/client";
 import { MemoryResult } from "@/src/core/context-service";
 import { MemoryCard } from "@/src/ui/MemoryCard";
@@ -31,7 +31,7 @@ export default function MemoriesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const loadMemories = async () => {
+  const loadMemories = useCallback(async () => {
     try {
       const filters =
         selectedCategory === "all" ? undefined : { category: selectedCategory };
@@ -43,23 +43,33 @@ export default function MemoriesScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [selectedCategory]);
 
   useEffect(() => {
     loadMemories();
-  }, [selectedCategory]);
+  }, [loadMemories]);
 
-  const onRefresh = () => {
+  const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadMemories();
-  };
+  }, [loadMemories]);
+
+  const renderMemory = useCallback(
+    ({ item }: { item: MemoryResult }) => <MemoryCard memory={item} isDark={isDark} />,
+    [isDark]
+  );
+
+  const refreshControl = useMemo(
+    () => <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />,
+    [onRefresh, refreshing]
+  );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: isDark ? "#111827" : "#F9FAFB" }]}>
       {/* Category filter chips */}
       <View style={styles.filterRow}>
         {CATEGORIES.map((cat) => (
-          <TouchableOpacity
+          <Pressable
             key={cat.value}
             style={[
               styles.chip,
@@ -87,18 +97,18 @@ export default function MemoriesScreen() {
             >
               {cat.label}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         ))}
       </View>
 
       {/* Memory list */}
       <FlatList
         data={memories}
-        renderItem={({ item }) => <MemoryCard memory={item} isDark={isDark} />}
+        renderItem={renderMemory}
         keyExtractor={(item) => item.id}
         style={styles.list}
         contentContainerStyle={styles.listContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={refreshControl}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={[styles.emptyText, { color: isDark ? "#9CA3AF" : "#6B7280" }]}>

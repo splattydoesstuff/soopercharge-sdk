@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import {
   StyleSheet,
   View,
@@ -6,9 +6,9 @@ import {
   Switch,
   ScrollView,
   useColorScheme,
-  SafeAreaView,
-  TouchableOpacity,
+  Pressable,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useUserStore } from "@/src/store/user";
 import { checkServerHealth } from "@/src/server-api/client";
 
@@ -19,16 +19,16 @@ export default function SettingsScreen() {
     useUserStore();
   const [checking, setChecking] = useState(false);
 
-  const checkConnection = async () => {
+  const checkConnection = useCallback(async () => {
     setChecking(true);
     const connected = await checkServerHealth();
     setServerConnected(connected);
     setChecking(false);
-  };
+  }, [setServerConnected]);
 
   useEffect(() => {
     checkConnection();
-  }, []);
+  }, [checkConnection]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: isDark ? "#111827" : "#F9FAFB" }]}>
@@ -70,9 +70,9 @@ export default function SettingsScreen() {
                 </Text>
               </View>
             </View>
-            <TouchableOpacity style={styles.checkButton} onPress={checkConnection}>
+            <Pressable style={styles.checkButton} onPress={checkConnection}>
               <Text style={styles.checkButtonText}>重新检测</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </View>
 
