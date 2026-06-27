@@ -176,10 +176,7 @@ export class VoicePerceiver extends BasePerceiver {
       } else if (intent === "search") {
         const facts = await memoryService.search(transcript);
         response = await llmService.generateResponse(intent, { facts, transcript });
-        const factsWithEvidence = facts.filter((fact) => fact.metadata?.evidenceUri);
-        evidenceUri = factsWithEvidence.length === 1
-          ? factsWithEvidence[0].metadata?.evidenceUri
-          : undefined;
+        evidenceUri = facts.find((fact) => fact.metadata?.evidenceUri)?.metadata?.evidenceUri;
       } else {
         response = await llmService.generateResponse(intent, {
           facts: [],

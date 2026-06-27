@@ -3,6 +3,7 @@ import test from "node:test";
 import Fastify from "fastify";
 import {
   createObserveRoutes,
+  extractExplicitPlacement,
   hasUsableVisualDescription,
 } from "../src/routes/observe.js";
 
@@ -110,9 +111,63 @@ test("voice visual observe route does not store unusable visual descriptions", a
   }
 });
 
+test("voice visual observe route prefers explicit placement from transcript", async () => {
+  const stored: Array<{
+    messages: Array<{ role: string; content: string }>;
+    metadata?: Record<string, any>;
+  }> = [];
+  const server = Fastify({ logger: false });
+  await server.register(
+    createObserveRoutes({
+      describeImage: async () => "桌子上有衣服，下面有一个狗窝。",
+      saveEvidenceImage: async () => ({
+        url: "http://127.0.0.1:8080/api/evidence/clothes.jpg",
+        filename: "clothes.jpg",
+      }),
+      addMemory: async (messages, metadata) => {
+        stored.push({ messages, metadata });
+        return { ok: true };
+      },
+      searchMemories: async () => [],
+      generateConfirmation: async (_transcript, _description, placementFact) =>
+        `记住了，${placementFact}。`,
+    }),
+    { prefix: "/api/observe" }
+  );
+
+  try {
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/observe/voice-visual",
+      payload: {
+        transcript: "记住衣服现在放在桌子下",
+        imageBase64: IMAGE_BASE64,
+        metadata: { category: "placement" },
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().remembered, true);
+    assert.equal(response.json().response, "记住了，衣服在桌子下。");
+    assert.equal(stored.length, 1);
+    assert.match(stored[0].messages[0].content, /位置事实：衣服在桌子下/);
+    assert.match(stored[0].messages[0].content, /视觉观察：桌子上有衣服/);
+    assert.equal(stored[0].metadata?.placementFact, "衣服在桌子下");
+    assert.equal(stored[0].metadata?.description, "桌子上有衣服，下面有一个狗窝。");
+  } finally {
+    await server.close();
+  }
+});
+
 test("hasUsableVisualDescription rejects non-observations", () => {
   assert.equal(hasUsableVisualDescription("一串钥匙在蓝色抽屉里"), true);
   assert.equal(hasUsableVisualDescription("无法识别图片内容"), false);
   assert.equal(hasUsableVisualDescription("没有可辨认的物品、位置或环境"), false);
   assert.equal(hasUsableVisualDescription("   "), false);
+});
+
+test("extractExplicitPlacement reads concrete placement from transcript", () => {
+  assert.equal(extractExplicitPlacement("记住衣服现在放在桌子下"), "衣服在桌子下");
+  assert.equal(extractExplicitPlacement("我的钥匙在蓝色抽屉里"), "钥匙在蓝色抽屉里");
+  assert.equal(extractExplicitPlacement("记住这个放这了"), null);
 });

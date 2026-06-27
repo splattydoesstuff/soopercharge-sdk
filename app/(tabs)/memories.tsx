@@ -63,6 +63,10 @@ export default function MemoriesScreen() {
     () => <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />,
     [onRefresh, refreshing]
   );
+  const sortedMemories = useMemo(
+    () => [...memories].sort(compareMemoryByNewest),
+    [memories]
+  );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: isDark ? "#111827" : "#F9FAFB" }]}>
@@ -103,7 +107,7 @@ export default function MemoriesScreen() {
 
       {/* Memory list */}
       <FlatList
-        data={memories}
+        data={sortedMemories}
         renderItem={renderMemory}
         keyExtractor={(item) => item.id}
         style={styles.list}
@@ -119,6 +123,15 @@ export default function MemoriesScreen() {
       />
     </SafeAreaView>
   );
+}
+
+function getMemoryTime(memory: MemoryResult): number {
+  const rawTime = memory.createdAt || memory.metadata?.timestamp;
+  return rawTime ? new Date(rawTime).getTime() : 0;
+}
+
+function compareMemoryByNewest(a: MemoryResult, b: MemoryResult): number {
+  return getMemoryTime(b) - getMemoryTime(a);
 }
 
 const styles = StyleSheet.create({

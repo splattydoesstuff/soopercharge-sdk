@@ -14,7 +14,11 @@ export interface ObserveDependencies {
   saveEvidenceImage: typeof saveEvidenceImage;
   addMemory: typeof addMemory;
   searchMemories: typeof searchMemories;
-  generateConfirmation: (transcript: string, description: string) => Promise<string>;
+  generateConfirmation: (
+    transcript: string,
+    description: string,
+    placementFact?: string | null
+  ) => Promise<string>;
 }
 
 const UNUSABLE_VISION_PATTERNS = [
@@ -35,6 +39,29 @@ export function hasUsableVisualDescription(description: string): boolean {
   }
 
   return !UNUSABLE_VISION_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+export function extractExplicitPlacement(transcript: string): string | null {
+  const normalized = transcript.trim().replace(/[，。！？,.!?]+$/g, "");
+  const patterns = [
+    /(?:记住|记一下)?(.{1,20}?)(?:现在)?(?:放|搁|摆|在)(?:在)?(.{1,24})/,
+    /我的(.{1,20}?)(?:现在)?(?:在)(.{1,24})/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+
+    const item = match[1]?.trim().replace(/^我的/, "");
+    const location = match[2]?.trim();
+    if (!item || !location || /这个|这里|那里|这儿|那儿/.test(item)) {
+      continue;
+    }
+
+    return `${item}在${location}`;
+  }
+
+  return null;
 }
 
 export async function describeImage(imageBase64: string, transcript: string): Promise<string> {
@@ -71,7 +98,15 @@ export async function describeImage(imageBase64: string, transcript: string): Pr
   return data.choices?.[0]?.message?.content || "无法识别图片内容";
 }
 
-export async function generateConfirmation(transcript: string, description: string): Promise<string> {
+export async function generateConfirmation(
+  transcript: string,
+  description: string,
+  placementFact?: string | null
+): Promise<string> {
+  if (placementFact) {
+    return `记住了，${placementFact}。`;
+  }
+
   try {
     const response = await openai.chat.completions.create({
       model: config.llm.model,
@@ -128,8 +163,12 @@ export function createObserveRoutes(
       const description = await dependencies.describeImage(imageBase64, transcript);
       const evidence = await dependencies.saveEvidenceImage(imageBase64, request);
       const usableVisualDescription = hasUsableVisualDescription(description);
+      const explicitPlacement = extractExplicitPlacement(transcript);
+      const placementFact = explicitPlacement || description;
 
-      const memoryText = `用户说：${transcript}\n视觉观察：${description}`;
+      const memoryText = explicitPlacement
+        ? `用户说：${transcript}\n位置事实：${explicitPlacement}\n视觉观察：${description}`
+        : `用户说：${transcript}\n视觉观察：${description}`;
       const memoryMetadata = {
         ...metadata,
         category: metadata?.category || "placement",
@@ -137,6 +176,7 @@ export function createObserveRoutes(
         timestamp: metadata?.timestamp || new Date().toISOString(),
         evidenceUri: evidence.url,
         description,
+        placementFact,
       };
 
       if (usableVisualDescription) {
@@ -146,7 +186,7 @@ export function createObserveRoutes(
       }
 
       const response = usableVisualDescription
-        ? await dependencies.generateConfirmation(transcript, description)
+        ? await dependencies.generateConfirmation(transcript, description, explicitPlacement)
         : "这张图里没有可辨认的物品位置，我先保存证据图，但不写入记忆。";
       return {
         response,

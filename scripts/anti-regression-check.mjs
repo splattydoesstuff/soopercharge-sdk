@@ -80,6 +80,8 @@ assertPresent("app/(tabs)/settings.tsx", [
 assertPresent("server/src/routes/observe.ts", [
   /hasUsableVisualDescription/,
   /UNUSABLE_VISION_PATTERNS/,
+  /extractExplicitPlacement/,
+  /placementFact/,
   /if \(usableVisualDescription\) \{\s*await dependencies\.addMemory/s,
   /remembered: usableVisualDescription/,
 ]);
@@ -90,6 +92,15 @@ assertPresent("server/tests/observe.test.ts", [
   /assert\.equal\(stored\[0\]\.metadata\?\.evidenceUri/,
   /does not store unusable visual descriptions/,
   /assert\.equal\(stored\.length, 0\)/,
+]);
+
+assertPresent("server/src/routes/llm.ts", [
+  /if \(intent === "search"\) \{\s*return \{ response: buildGroundedSearchResponse\(facts\) \};\s*\}/s,
+  /export function buildGroundedSearchResponse/,
+]);
+
+assertPresent("src/perceivers/voice-perceiver.ts", [
+  /evidenceUri = facts\.find\(\(fact\) => fact\.metadata\?\.evidenceUri\)\?\.metadata\?\.evidenceUri/,
 ]);
 
 assertPresent("server/tests/anti-regression.test.ts", [

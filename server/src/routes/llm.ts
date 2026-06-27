@@ -88,6 +88,10 @@ store, search, remind, chat
     }
 
     try {
+      if (intent === "search") {
+        return { response: buildGroundedSearchResponse(facts) };
+      }
+
       const systemPrompt = buildSystemPrompt(intent, facts);
 
       const response = await openai.chat.completions.create({
@@ -166,6 +170,30 @@ export function buildSystemPrompt(
     default:
       return `${base}\n这是一般对话。请简短、自然地回复。`;
   }
+}
+
+export function buildGroundedSearchResponse(
+  facts: Array<{ memory: string; metadata?: Record<string, any> }>
+): string {
+  if (facts.length === 0) {
+    return "抱歉，我不记得这个信息。";
+  }
+
+  const topFact = facts[0];
+  const placementFact = typeof topFact.metadata?.placementFact === "string"
+    ? topFact.metadata.placementFact.trim()
+    : "";
+  const description = typeof topFact.metadata?.description === "string"
+    ? topFact.metadata.description.trim()
+    : "";
+  const memory = topFact.memory.trim();
+  const factText = placementFact || description || memory;
+
+  if (!factText) {
+    return "抱歉，我不记得这个信息。";
+  }
+
+  return `我记得：${factText}`;
 }
 
 /**

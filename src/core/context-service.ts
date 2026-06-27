@@ -8,11 +8,15 @@ export interface Message {
 export interface MemoryResult {
   id: string;
   memory: string;
+  createdAt?: string;
+  updatedAt?: string;
   metadata?: {
     category?: MemoryCategory;
     source?: string;
     timestamp?: string;
     evidenceUri?: string;
+    description?: string;
+    placementFact?: string;
   };
   score?: number;
 }

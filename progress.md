@@ -7,8 +7,8 @@
 | # | 标准 | 实际状态 | 证据 / 剩余项 |
 |---|------|----------|---------------|
 | 1 | 语音记事 → 确认 | ✅ | Docker PG + pgvector 已实跑；memory add/search/getAll 通过 |
-| 2 | "记住这个放这了" → 截帧+证据 | ⏳ | 服务端真实 E2E 已通过：MiniCPM-V 描述 + evidence URL + memory 写入；Android Settings 视觉诊断已证明 App 调 observe、返回 evidenceUri 并落聊天证据图，但 emulator 相机帧为纯色不可用，仍需真实可用画面 + 语音路径验证 |
-| 3 | "钥匙放哪" → 位置+证据截图 | ⏳ | 真实检索已返回视觉记忆和 evidenceUri；对话页 evidence 图片已在 Android 通过 Glide 加载验证，记忆列表真实图片加载还需设备端验证 |
+| 2 | "记住这个放这了" → 截帧+证据 | ⏳ | 服务端真实 E2E 已通过：MiniCPM-V 描述 + evidence URL + memory 写入；`demo.jpg` 可用图片已证明 observe 写入、证据图保存和明确口述位置纠偏；Android Settings 视觉诊断已证明 App 调 observe、返回 evidenceUri 并落聊天证据图，但 emulator 相机帧为纯色不可用，仍需真实设备 App 语音路径 + 可用相机帧验证 |
+| 3 | "钥匙放哪" → 位置+证据截图 | ⏳ | `衣服放哪了` 检索已返回 `placementFact=衣服在桌子下` 和 evidenceUri，服务端回复确定性使用 top fact；对话页和记忆列表 evidence 图片均已在 Android 通过 Glide 加载验证；仍需实际语音检索路径验证 |
 | 4 | 日历提醒推送 | ⏳ | bootstrapApp 已接 CalendarPerceiver → ReminderScheduler；Android 已修复 Expo Calendar legacy API 启动错误；还需真实日历事件、通知和 TTS 实测 |
 | 5 | 不确定时说"我不记得" | ✅ | LLM search 无 facts prompt 明确禁止编造；根/服务端 TypeScript 通过 |
 | 6 | 全程免手操作(唤醒词) | ⏳ | Android emulator 已验证 KWS native 初始化、模型绝对路径和 audio feeder 持续喂样本；还需真实唤醒词、Speaker/STT 行为验证 |
@@ -55,6 +55,8 @@
   - [x] Android emulator 设备实测：启动日志显示后置相机打开并进入 `STREAMING`，JS 日志出现 `[CameraPerceiver] First camera frame buffered`
   - [x] Android Settings 视觉诊断入口复用 `cameraPerceiver.getLatestFrame()` 调用 `observeService.voiceVisual()`，并把 assistant `evidenceUri` 写入对话消息
   - [x] Android emulator 视觉诊断已跑通 App → server observe → evidence URL → ChatBubble 图片加载；由于 hidden camera 返回纯色/不可辨认帧，服务端返回 `remembered=false` 且不写入 memory
+  - [x] `demo.jpg` 可用图片实跑 `/api/observe/voice-visual`：`记住衣服现在放在桌子下` 返回 `remembered=true`、设备可访问 evidence URL，并写入 `placementFact=衣服在桌子下`
+  - [x] observe 服务端优先使用明确口述位置纠偏：视觉模型把图片误判为狗窝/毛绒玩具时，memory 和确认回复仍以用户明确的“衣服在桌子下”为事实
 - [ ] "记住这个放这了" 设备端手动验证
 
 ## Step 6: APP 端 — UI 展示证据图片
@@ -62,7 +64,8 @@
 - [x] `MemoryCard` 有 evidenceUri 时展示图片缩略图
 - [x] `ChatBubble` assistant 消息有 evidenceUri 时展示图片
 - [x] 对话页真实图片加载验证：Android emulator 视觉诊断返回 evidence URL 后，ChatBubble 触发 Glide 远程图片加载并截图确认图片渲染
-- [ ] 记忆列表真实图片加载验证
+- [x] 记忆列表真实图片加载验证：`demo.jpg` evidence URL 使用设备可访问 host 写入后，Android `MemoryCard` 触发 Glide 远程加载并截图确认图片渲染
+- [x] 记忆列表按 `createdAt/timestamp` 最新优先派生排序，避免最新视觉证据被旧测试记录埋在列表后面
 
 ## Step 7: Native Module — sherpa-onnx KWS + Speaker ID + STT
 - [x] 删除未实现的 `expo-sherpa-kws` scaffold，避免旧降级模块被误接回业务链路
@@ -116,9 +119,11 @@
 - [x] `server/tests/memory.test.ts`
   - [x] 单测锁定 Mem0 查询过滤条件始终包含 `user_id: owner-1`，并保留 metadata `category` 过滤，防止跨用户/跨类别检索回退
 - [x] `server/tests/llm.test.ts`
+  - [x] search 回复改为确定性使用 top retrieved fact，优先 `metadata.placementFact`，无 facts 时固定返回不记得，防止 LLM 编造位置
 - [x] `server/tests/vision.test.ts`
 - [x] `server/tests/evidence.test.ts`
 - [x] `server/tests/observe.test.ts`
+  - [x] 覆盖明确口述位置纠偏：`记住衣服现在放在桌子下` 即使视觉描述偏成狗窝/毛绒玩具，也写入 `位置事实：衣服在桌子下`
 - [x] `server/tests/anti-regression.test.ts`：确认服务器不再暴露 `/api/stt/transcribe` 回退转写入口
 - [x] `pnpm test`：root anti-regression 门禁，锁定设备端 STT、声纹先验、视觉证据、证据图片 UI、memory owner/category 过滤和 `infer:false`，防止已消灭降级项被接回
 - [x] `pnpm exec tsc --noEmit`
@@ -133,7 +138,9 @@
 - [x] Android emulator 启动日志验证：JS bundle 正常加载，Sherpa JNI 加载，KWS 初始化完成且持续接收音频样本
 - [x] Android emulator 设置页语音诊断：`[Settings] Voice smoke succeeded ... speaker=pass | stt=没。`，且日志显示 `[STT] Paused KWS feeder for recording` 后到识别完成前无 `acceptWaveform`，随后 `[STT] Resumed KWS feeder after recording`
 - [x] Android emulator 设置页视觉诊断：`[Settings] Visual smoke succeeded ... remembered=no ... evidence=... description=...纯色...`，并确认 ChatBubble evidence 图片加载
-- [x] `npx -y react-doctor@latest . --verbose --scope changed`：100/100，无问题
+- [x] `demo.jpg` 服务端 E2E：observe 返回 `记住了，衣服在桌子下。`，search top memory 带 `placementFact=衣服在桌子下`，`/api/llm/generate-response` 返回 `我记得：衣服在桌子下`
+- [x] Android emulator 记忆列表 evidence 图验证：`Glide Finished loading BitmapDrawable from REMOTE for http://192.168.3.71:8080/api/evidence/5c690078-...jpg`
+- [x] `npx -y react-doctor@latest . --verbose --scope changed`：退出码 0；对 `selectedCategory` 给出 derived-state 警告，经代码检查属于用户选择 filter state，不是可从其它 state 推导的值，未改动
 - [ ] APP 手动冒烟测试：纯语音、视觉记事、检索+证据、日历提醒、KWS+声纹、iOS+Android
 
 ## Step 10: 清理 + 验收
