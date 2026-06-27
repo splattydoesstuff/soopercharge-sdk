@@ -154,6 +154,14 @@ export class SherpaVoiceAdapter {
     return SherpaOnnx.KWS.acceptWaveform(sampleRate, samples);
   }
 
+  async resetKwsStream(): Promise<void> {
+    await this.initializeKws();
+    const result = await SherpaOnnx.KWS.resetStream();
+    if (!result.success) {
+      throw new Error("Sherpa KWS stream reset failed");
+    }
+  }
+
   async initializeSpeaker(
     config: SpeakerIdModelConfig = getSherpaSpeakerConfig()
   ): Promise<void> {

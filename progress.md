@@ -11,7 +11,7 @@
 | 3 | "钥匙放哪" → 位置+证据截图 | ⏳ | `衣服放哪了` 检索已返回 `placementFact=衣服在桌子下` 和 evidenceUri，服务端回复确定性使用 top fact；对话页和记忆列表 evidence 图片均已在 Android 通过 Glide 加载验证；仍需实际语音检索路径验证 |
 | 4 | 日历提醒推送 | ✅ | Android emulator 已创建真实系统日历事件，经 CalendarPerceiver 扫描 `emitted=1`，触发 ReminderScheduler、本地通知和 TTS；通知栏显示 `LOOI 提醒` |
 | 5 | 不确定时说"我不记得" | ✅ | LLM search 无 facts prompt 明确禁止编造；根/服务端 TypeScript 通过 |
-| 6 | 全程免手操作(唤醒词) | ⏳ | Android emulator 已验证 KWS native 初始化、模型绝对路径、audio feeder 持续喂样本、Speaker owner pass 和固定非 owner 语音 asset reject；还需真实唤醒词命中验证 |
+| 6 | 全程免手操作(唤醒词) | ⏳ | Android emulator 已验证 KWS native 初始化、模型绝对路径、audio feeder 持续喂样本、固定 `嘿魔戈` 音频 asset 命中 `HEY_MOGE`、Speaker owner pass 和固定非 owner 语音 asset reject；还需真实麦克风唤醒命中验证 |
 | 7 | iOS + Android 双平台 | ⏳ | Android `:app:assembleDebug` 已通过；iOS native build 仍被本机 Xcode 缺失组件阻塞；双平台设备实测未完成 |
 
 ---
@@ -100,7 +100,8 @@
 - [x] `@siteed/audio-studio` Expo config plugin 已用最小权限接入，提供麦克风权限并关闭后台录音/通知/蓝牙/电话权限
 - [x] KWS feeder 已处理运行中偏好切换、float PCM payload fallback、队列上限，避免静默断流和无限堆积
 - [x] STT 录音/声纹验证/ASR 期间统一暂停 KWS feeder，并在完整处理结束后恢复；root anti-regression 锁定互斥恢复路径
-- [ ] 常驻 KWS 音频采集 feeder 设备验证：Android emulator 已确认持续 `acceptWaveform` 和 STT 互斥恢复；还需真实唤醒词命中后恢复监听
+- [x] 固定唤醒词音频 asset 设备验证：设置页隔离 live feeder、reset KWS stream、分块喂 `嘿魔戈` 16k PCM WAV，Android emulator 输出 `detected=yes | keyword=HEY_MOGE | samples=12001 | sampleRate=16000`
+- [ ] 常驻 KWS 音频采集 feeder 设备验证：Android emulator 已确认持续 `acceptWaveform`、STT 互斥恢复、固定音频可命中；还需真实麦克风唤醒命中后恢复监听
 - [x] `src/voice/stt.ts` 接设备端 SenseVoice ASR adapter，移除服务器 STT HTTP 调用
 - [x] Android emulator 设备端 STT smoke：SenseVoice ASR 初始化完成，`recognizeFromFile()` 对录音 m4a 返回文本 `没。`
 - [x] `expo-file-system` 直接依赖已声明，用于设备端模型文件自检

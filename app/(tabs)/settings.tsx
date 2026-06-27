@@ -19,11 +19,19 @@ import { useConversationStore } from "@/src/store/conversation";
 import { speakerIdService } from "@/src/voice/speaker-id";
 import { sttService } from "@/src/voice/stt";
 import { sherpaVoiceAdapter } from "@/src/voice/sherpa-adapter";
+import {
+  feedSamplesSequentially,
+  loadPcm16WavAssetSamples,
+} from "@/src/voice/diagnostic-audio";
+import { kwsAudioFeeder } from "@/src/voice/kws-audio-feeder";
 import { reminderScheduler } from "@/src/reminder/reminder-scheduler";
 import type { SherpaModelCheck } from "@/src/voice/sherpa-models";
 
 const CALENDAR_SMOKE_TITLE = "Phase 1 真实日历提醒诊断";
 const CALENDAR_SMOKE_CALENDAR_TITLE = "LOOI Phase 1 Diagnostics";
+const KWS_DIAGNOSTIC_AUDIO = require("@/assets/diagnostics/hey-moge.wav");
+const KWS_DIAGNOSTIC_CHUNK_SIZE = 1600;
+const KWS_DIAGNOSTIC_TAIL_SILENCE_SAMPLES = 16000;
 
 type SherpaModelStatus = {
   asr: SherpaModelCheck;
@@ -47,6 +55,11 @@ type SettingsUiState = {
   };
   speakerVerify: {
     recording: boolean;
+    running: boolean;
+    result: string | null;
+    error: string | null;
+  };
+  kwsSmoke: {
     running: boolean;
     result: string | null;
     error: string | null;
@@ -81,6 +94,9 @@ type SettingsUiAction =
   | { type: "speaker-verify/start-running" }
   | { type: "speaker-verify/succeeded"; result: string }
   | { type: "speaker-verify/failed"; error: string }
+  | { type: "kws-smoke/start-running" }
+  | { type: "kws-smoke/succeeded"; result: string }
+  | { type: "kws-smoke/failed"; error: string }
   | { type: "visual-smoke/start-running" }
   | { type: "visual-smoke/succeeded"; result: string }
   | { type: "visual-smoke/failed"; error: string }
@@ -105,6 +121,11 @@ const initialSettingsUiState: SettingsUiState = {
   },
   speakerVerify: {
     recording: false,
+    running: false,
+    result: null,
+    error: null,
+  },
+  kwsSmoke: {
     running: false,
     result: null,
     error: null,
@@ -191,6 +212,21 @@ function settingsUiReducer(
         ...state,
         speakerVerify: { recording: false, running: false, result: null, error: action.error },
       };
+    case "kws-smoke/start-running":
+      return {
+        ...state,
+        kwsSmoke: { running: true, result: null, error: null },
+      };
+    case "kws-smoke/succeeded":
+      return {
+        ...state,
+        kwsSmoke: { running: false, result: action.result, error: null },
+      };
+    case "kws-smoke/failed":
+      return {
+        ...state,
+        kwsSmoke: { running: false, result: null, error: action.error },
+      };
     case "visual-smoke/start-running":
       return {
         ...state,
@@ -269,6 +305,11 @@ export default function SettingsScreen() {
     result: speakerVerifyResult,
     error: speakerVerifyError,
   } = uiState.speakerVerify;
+  const {
+    running: kwsSmokeRunning,
+    result: kwsSmokeResult,
+    error: kwsSmokeError,
+  } = uiState.kwsSmoke;
   const {
     running: visualSmokeRunning,
     result: visualSmokeResult,
@@ -501,6 +542,43 @@ export default function SettingsScreen() {
     }
   }, [addConversationMessage, visualSmokeRunning]);
 
+  const runKwsSmoke = useCallback(async () => {
+    if (kwsSmokeRunning) return;
+
+    dispatchUi({ type: "kws-smoke/start-running" });
+
+    const shouldRestoreFeeder = kwsAudioFeeder.isRunning && preferences.wakeWordEnabled;
+    try {
+      const [{ samples, sampleRate }] = await Promise.all([
+        loadPcm16WavAssetSamples(KWS_DIAGNOSTIC_AUDIO),
+        sherpaVoiceAdapter.initializeKws(),
+      ]);
+      if (kwsAudioFeeder.isRunning) {
+        await kwsAudioFeeder.stop();
+      }
+      await sherpaVoiceAdapter.resetKwsStream();
+      const result = await runKwsDiagnosticSamples(samples, sampleRate);
+      const summary = [
+        `detected=${result.detected ? "yes" : "no"}`,
+        `keyword=${result.keyword || "(empty)"}`,
+        `samples=${samples.length}`,
+        `sampleRate=${sampleRate}`,
+      ].join(" | ");
+      console.log(`[Settings] KWS smoke succeeded: ${summary}`);
+      dispatchUi({ type: "kws-smoke/succeeded", result: summary });
+    } catch (error) {
+      console.error("[Settings] KWS smoke failed:", error);
+      dispatchUi({ type: "kws-smoke/failed", error: "唤醒词诊断失败" });
+    } finally {
+      await sherpaVoiceAdapter.resetKwsStream().catch(() => undefined);
+      if (shouldRestoreFeeder) {
+        await kwsAudioFeeder.start().catch((error) => {
+          console.warn("[Settings] Failed to restore KWS feeder after smoke:", error);
+        });
+      }
+    }
+  }, [kwsSmokeRunning, preferences.wakeWordEnabled]);
+
   const runCalendarSmoke = useCallback(async () => {
     if (calendarSmokeRunning) return;
 
@@ -599,7 +677,11 @@ export default function SettingsScreen() {
           modelStatus={modelStatus}
           checkingModels={checkingModels}
           modelError={modelError}
+          kwsSmokeRunning={kwsSmokeRunning}
+          kwsSmokeResult={kwsSmokeResult}
+          kwsSmokeError={kwsSmokeError}
           checkSherpaModels={checkSherpaModels}
+          runKwsSmoke={runKwsSmoke}
         />
 
         <VisualMemorySection
@@ -785,13 +867,21 @@ function VoiceModelsSection({
   modelStatus,
   checkingModels,
   modelError,
+  kwsSmokeRunning,
+  kwsSmokeResult,
+  kwsSmokeError,
   checkSherpaModels,
+  runKwsSmoke,
 }: {
   isDark: boolean;
   modelStatus: SherpaModelStatus | null;
   checkingModels: boolean;
   modelError: string | null;
+  kwsSmokeRunning: boolean;
+  kwsSmokeResult: string | null;
+  kwsSmokeError: string | null;
   checkSherpaModels: () => void;
+  runKwsSmoke: () => void;
 }) {
   return (
     <View style={styles.section}>
@@ -818,6 +908,17 @@ function VoiceModelsSection({
             {checkingModels ? "检查中..." : "重新检测模型"}
           </Text>
         </Pressable>
+        <Pressable
+          style={[styles.checkButton, kwsSmokeRunning && styles.disabledButton]}
+          onPress={runKwsSmoke}
+          disabled={kwsSmokeRunning}
+        >
+          <Text style={styles.checkButtonText}>
+            {kwsSmokeRunning ? "诊断中..." : "测试唤醒词音频"}
+          </Text>
+        </Pressable>
+        {kwsSmokeResult ? <Text style={styles.smokeResultText}>{kwsSmokeResult}</Text> : null}
+        {kwsSmokeError ? <Text style={styles.errorText}>{kwsSmokeError}</Text> : null}
       </View>
     </View>
   );
@@ -953,6 +1054,16 @@ async function createCalendarSmokeEvent(): Promise<string> {
   });
   console.log(`[Settings] Created calendar smoke event: ${eventId}`);
   return eventId;
+}
+
+async function runKwsDiagnosticSamples(samples: number[], sampleRate: number) {
+  const paddedSamples = samples.concat(new Array(KWS_DIAGNOSTIC_TAIL_SILENCE_SAMPLES).fill(0));
+  return feedSamplesSequentially(
+    paddedSamples,
+    KWS_DIAGNOSTIC_CHUNK_SIZE,
+    (chunk) => sherpaVoiceAdapter.acceptKwsSamples(chunk, sampleRate),
+    (result) => result.detected
+  );
 }
 
 async function getOrCreateCalendarSmokeCalendar(): Promise<string> {

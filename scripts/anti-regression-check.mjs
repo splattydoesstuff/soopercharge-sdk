@@ -72,6 +72,7 @@ assertPresent("src/voice/sherpa-adapter.ts", [
   /SpeakerId\.getSpeakers\(\)/,
   /SpeakerId\.removeSpeaker\(name\)/,
   /SpeakerId\.registerSpeaker\(name, embedding\)/,
+  /KWS\.resetStream\(\)/,
 ]);
 
 assertAbsent("app/(tabs)/settings.tsx", [
@@ -80,6 +81,14 @@ assertAbsent("app/(tabs)/settings.tsx", [
 ]);
 
 assertPresent("app/(tabs)/settings.tsx", [
+  /loadPcm16WavAssetSamples/,
+  /KWS_DIAGNOSTIC_AUDIO/,
+  /kwsAudioFeeder\.stop\(\)/,
+  /kwsAudioFeeder\.start\(\)/,
+  /runKwsDiagnosticSamples/,
+  /sherpaVoiceAdapter\.resetKwsStream\(\)/,
+  /KWS smoke succeeded/,
+  /测试唤醒词音频/,
   /cameraPerceiver\.getLatestFrame\(\)/,
   /observeService\.voiceVisual/,
   /reminderScheduler\.processCalendarObservation/,
