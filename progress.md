@@ -79,9 +79,9 @@
 - [ ] 设备日历事件 + 本地通知 + TTS 实测
 
 ## Step 9: 测试
-- [ ] `server/tests/memory.test.ts`
-- [ ] `server/tests/llm.test.ts`
-- [ ] `server/tests/vision.test.ts`
+- [x] `server/tests/memory.test.ts`
+- [x] `server/tests/llm.test.ts`
+- [x] `server/tests/vision.test.ts`
 - [x] `server/tests/evidence.test.ts`
 - [x] `server/tests/observe.test.ts`
 - [x] `pnpm exec tsc --noEmit`

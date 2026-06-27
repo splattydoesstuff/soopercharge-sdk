@@ -7,7 +7,7 @@ const openai = new OpenAI({
   apiKey: config.llm.apiKey,
 });
 
-type UserIntent = "store" | "search" | "remind" | "chat";
+export type UserIntent = "store" | "search" | "remind" | "chat";
 
 /**
  * LLM routes — /api/llm/*
@@ -112,7 +112,7 @@ store, search, remind, chat
 /**
  * Rule-based intent classification fallback
  */
-function ruleBasedClassify(transcript: string): UserIntent {
+export function ruleBasedClassify(transcript: string): UserIntent {
   const t = transcript.toLowerCase();
 
   // Store indicators
@@ -136,7 +136,7 @@ function ruleBasedClassify(transcript: string): UserIntent {
 /**
  * Build system prompt based on intent and available facts
  */
-function buildSystemPrompt(
+export function buildSystemPrompt(
   intent: UserIntent,
   facts: Array<{ memory: string; metadata?: Record<string, any> }>
 ): string {
@@ -171,7 +171,7 @@ function buildSystemPrompt(
 /**
  * Default responses when LLM fails
  */
-function getDefaultResponse(intent: UserIntent): string {
+export function getDefaultResponse(intent: UserIntent): string {
   switch (intent) {
     case "store":
       return "好的，我记住了。";

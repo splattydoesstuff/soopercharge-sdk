@@ -46,6 +46,11 @@ function getMemory(): Memory {
 const USER_ID = "owner-1"; // Phase 1: single owner
 
 type MemoryMessage = Array<{ role: string; content: string }>;
+interface MemoryRouteDependencies {
+  addMemory: typeof addMemory;
+  searchMemories: typeof searchMemories;
+  getAllMemories: typeof getAllMemories;
+}
 
 export async function addMemory(
   messages: MemoryMessage,
@@ -90,10 +95,17 @@ export async function getAllMemories(filters?: { category?: string }): Promise<u
   return result.results || [];
 }
 
-/**
- * Memory routes — /api/memory/*
- */
-export async function memoryRoutes(fastify: FastifyInstance) {
+export function createMemoryRoutes(
+  dependencies: MemoryRouteDependencies = {
+    addMemory,
+    searchMemories,
+    getAllMemories,
+  }
+) {
+  /**
+   * Memory routes — /api/memory/*
+   */
+  return async function memoryRoutes(fastify: FastifyInstance) {
   /**
    * POST /api/memory/add
    * Store a new memory
@@ -111,7 +123,7 @@ export async function memoryRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const result = await addMemory(messages, metadata);
+      const result = await dependencies.addMemory(messages, metadata);
 
       return { success: true, result };
     } catch (error: any) {
@@ -137,7 +149,7 @@ export async function memoryRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const results = await searchMemories(query, filters, topK || 5);
+      const results = await dependencies.searchMemories(query, filters, topK || 5);
       return { results };
     } catch (error: any) {
       fastify.log.error(error, "Memory search failed");
@@ -158,7 +170,7 @@ export async function memoryRoutes(fastify: FastifyInstance) {
     const { category } = request.query;
 
     try {
-      const results = await getAllMemories({ category });
+      const results = await dependencies.getAllMemories({ category });
       return { results };
     } catch (error: any) {
       fastify.log.error(error, "Memory getAll failed");
@@ -168,4 +180,7 @@ export async function memoryRoutes(fastify: FastifyInstance) {
       });
     }
   });
+  };
 }
+
+export const memoryRoutes = createMemoryRoutes();
