@@ -79,12 +79,27 @@ assertAbsent("app/(tabs)/settings.tsx", [
 assertPresent("app/(tabs)/settings.tsx", [
   /cameraPerceiver\.getLatestFrame\(\)/,
   /observeService\.voiceVisual/,
+  /reminderScheduler\.processCalendarObservation/,
+  /Calendar smoke succeeded/,
   /speakerIdService\.refreshEnrollmentStatus\(\)/,
   /Speaker verify succeeded/,
   /验证已注册声纹/,
   /addConversationMessage\(\{\s*role: "assistant",\s*content: result\.response,\s*evidenceUri: result\.evidenceUri,/s,
   /remembered=\$\{result\.remembered \? "yes" : "no"\}/,
   /Visual smoke succeeded/,
+]);
+
+assertPresent("src/reminder/reminder-scheduler.ts", [
+  /export interface ReminderResult/,
+  /notificationId = await sendImmediateNotification/,
+  /Calendar reminder sent/,
+  /return \{ response, notificationId, spoke, ttsError \}/,
+]);
+
+assertPresent("src/voice/tts.ts", [
+  /TTS_PLAYBACK_MAX_TIMEOUT_MS/,
+  /Playback timeout/,
+  /resolveOnce/,
 ]);
 
 assertPresent("server/src/routes/observe.ts", [

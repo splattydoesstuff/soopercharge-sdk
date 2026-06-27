@@ -17,6 +17,7 @@ import { useConversationStore } from "@/src/store/conversation";
 import { speakerIdService } from "@/src/voice/speaker-id";
 import { sttService } from "@/src/voice/stt";
 import { sherpaVoiceAdapter } from "@/src/voice/sherpa-adapter";
+import { reminderScheduler } from "@/src/reminder/reminder-scheduler";
 import type { SherpaModelCheck } from "@/src/voice/sherpa-models";
 
 type SherpaModelStatus = {
@@ -50,6 +51,11 @@ type SettingsUiState = {
     result: string | null;
     error: string | null;
   };
+  calendarSmoke: {
+    running: boolean;
+    result: string | null;
+    error: string | null;
+  };
   models: {
     status: SherpaModelStatus | null;
     checking: boolean;
@@ -73,6 +79,9 @@ type SettingsUiAction =
   | { type: "visual-smoke/start-running" }
   | { type: "visual-smoke/succeeded"; result: string }
   | { type: "visual-smoke/failed"; error: string }
+  | { type: "calendar-smoke/start-running" }
+  | { type: "calendar-smoke/succeeded"; result: string }
+  | { type: "calendar-smoke/failed"; error: string }
   | { type: "models/checking" }
   | { type: "models/checked"; status: SherpaModelStatus }
   | { type: "models/failed"; error: string };
@@ -96,6 +105,11 @@ const initialSettingsUiState: SettingsUiState = {
     error: null,
   },
   visualSmoke: {
+    running: false,
+    result: null,
+    error: null,
+  },
+  calendarSmoke: {
     running: false,
     result: null,
     error: null,
@@ -187,6 +201,21 @@ function settingsUiReducer(
         ...state,
         visualSmoke: { running: false, result: null, error: action.error },
       };
+    case "calendar-smoke/start-running":
+      return {
+        ...state,
+        calendarSmoke: { running: true, result: null, error: null },
+      };
+    case "calendar-smoke/succeeded":
+      return {
+        ...state,
+        calendarSmoke: { running: false, result: action.result, error: null },
+      };
+    case "calendar-smoke/failed":
+      return {
+        ...state,
+        calendarSmoke: { running: false, result: null, error: action.error },
+      };
     case "models/checking":
       return {
         ...state,
@@ -240,6 +269,11 @@ export default function SettingsScreen() {
     result: visualSmokeResult,
     error: visualSmokeError,
   } = uiState.visualSmoke;
+  const {
+    running: calendarSmokeRunning,
+    result: calendarSmokeResult,
+    error: calendarSmokeError,
+  } = uiState.calendarSmoke;
   const { status: modelStatus, checking: checkingModels, error: modelError } = uiState.models;
   const addConversationMessage = useConversationStore((state) => state.addMessage);
 
@@ -455,6 +489,37 @@ export default function SettingsScreen() {
     }
   }, [addConversationMessage, visualSmokeRunning]);
 
+  const runCalendarSmoke = useCallback(async () => {
+    if (calendarSmokeRunning) return;
+
+    dispatchUi({ type: "calendar-smoke/start-running" });
+
+    try {
+      const result = await reminderScheduler.processCalendarObservation(
+        createObservation(
+          "日历事件：「Phase 1 提醒诊断」将在 1 分钟后开始，地点：本机测试",
+          "calendar",
+          "calendar"
+        )
+      );
+      if (!result) {
+        throw new Error("Calendar reminder returned no result");
+      }
+
+      const summary = [
+        `notification=${result.notificationId}`,
+        `spoke=${result.spoke ? "yes" : "no"}`,
+        result.ttsError ? `ttsError=${result.ttsError}` : null,
+        `response=${result.response}`,
+      ].filter(Boolean).join(" | ");
+      console.log(`[Settings] Calendar smoke succeeded: ${summary}`);
+      dispatchUi({ type: "calendar-smoke/succeeded", result: summary });
+    } catch (error) {
+      console.error("[Settings] Calendar smoke failed:", error);
+      dispatchUi({ type: "calendar-smoke/failed", error: "日历提醒诊断失败" });
+    }
+  }, [calendarSmokeRunning]);
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: isDark ? "#111827" : "#F9FAFB" }]}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
@@ -494,6 +559,14 @@ export default function SettingsScreen() {
           result={visualSmokeResult}
           error={visualSmokeError}
           runVisualSmoke={runVisualSmoke}
+        />
+
+        <CalendarReminderSection
+          isDark={isDark}
+          running={calendarSmokeRunning}
+          result={calendarSmokeResult}
+          error={calendarSmokeError}
+          runCalendarSmoke={runCalendarSmoke}
         />
 
         <ServerSection
@@ -759,6 +832,39 @@ function VisualMemorySection({
         >
           <Text style={styles.checkButtonText}>
             {running ? "诊断中..." : "测试视觉记忆 + 证据图"}
+          </Text>
+        </Pressable>
+        {result ? <Text style={styles.smokeResultText}>{result}</Text> : null}
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+function CalendarReminderSection({
+  isDark,
+  running,
+  result,
+  error,
+  runCalendarSmoke,
+}: {
+  isDark: boolean;
+  running: boolean;
+  result: string | null;
+  error: string | null;
+  runCalendarSmoke: () => void;
+}) {
+  return (
+    <View style={styles.section}>
+      <SectionTitle isDark={isDark}>日历提醒</SectionTitle>
+      <View style={[styles.card, { backgroundColor: cardColor(isDark) }]}>
+        <Pressable
+          style={[styles.checkButton, running && styles.disabledButton]}
+          onPress={runCalendarSmoke}
+          disabled={running}
+        >
+          <Text style={styles.checkButtonText}>
+            {running ? "诊断中..." : "测试通知 + 语音提醒"}
           </Text>
         </Pressable>
         {result ? <Text style={styles.smokeResultText}>{result}</Text> : null}

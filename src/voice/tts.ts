@@ -1,6 +1,8 @@
 import { createAudioPlayer, type AudioPlayer } from "expo-audio";
 
 const MINIMAX_TTS_URL = "https://api.minimax.chat/v1/t2a_v2";
+const TTS_PLAYBACK_MIN_TIMEOUT_MS = 8_000;
+const TTS_PLAYBACK_MAX_TIMEOUT_MS = 30_000;
 
 interface TTSOptions {
   text: string;
@@ -100,14 +102,29 @@ export class TTSService {
 
       // Wait for playback to finish
       return new Promise<void>((resolve) => {
+        let resolved = false;
+        const resolveOnce = () => {
+          if (resolved) return;
+          resolved = true;
+          clearInterval(interval);
+          clearTimeout(timeout);
+          this.isPlaying = false;
+          this.cleanup();
+          resolve();
+        };
         const interval = setInterval(() => {
           if (!player.playing && player.currentStatus.didJustFinish) {
-            clearInterval(interval);
-            this.isPlaying = false;
-            this.cleanup();
-            resolve();
+            resolveOnce();
           }
         }, 250);
+        const timeoutMs = Math.min(
+          TTS_PLAYBACK_MAX_TIMEOUT_MS,
+          Math.max(TTS_PLAYBACK_MIN_TIMEOUT_MS, text.length * 280)
+        );
+        const timeout = setTimeout(() => {
+          console.warn(`[TTS] Playback timeout after ${timeoutMs}ms`);
+          resolveOnce();
+        }, timeoutMs);
       });
     } catch (error) {
       this.isPlaying = false;
