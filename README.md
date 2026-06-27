@@ -26,6 +26,9 @@ cd server && pnpm dev
 pnpm start
 ```
 
+The vision server defaults to port `8082` because Expo/Metro may use `8081`.
+Override with `VISION_PORT=... bash server/scripts/start-vision.sh` and keep `VISION_SERVER_URL` in sync.
+
 `server/scripts/start-vision.sh` expects:
 
 - `~/tools/llama.cpp/build/bin/llama-server`

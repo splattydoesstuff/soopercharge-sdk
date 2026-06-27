@@ -20,6 +20,7 @@ export class CameraPerceiver extends BasePerceiver {
   private mode: CameraMode = "smart_capture";
   private frameBuffer: string[] = []; // base64 frames
   private maxBufferSize = 10;
+  private loggedFirstFrame = false;
 
   async start(): Promise<void> {
     this.isActive = true;
@@ -46,6 +47,10 @@ export class CameraPerceiver extends BasePerceiver {
     this.frameBuffer.push(frameBase64);
     if (this.frameBuffer.length > this.maxBufferSize) {
       this.frameBuffer.shift();
+    }
+    if (!this.loggedFirstFrame) {
+      this.loggedFirstFrame = true;
+      console.log("[CameraPerceiver] First camera frame buffered");
     }
   }
 

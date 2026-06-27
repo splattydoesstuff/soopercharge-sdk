@@ -51,6 +51,7 @@
 - [x] `VoicePerceiver.finishListening()` 对视觉指示词 + 相机帧走联合端点
 - [x] 创建 `src/camera/uploader.ts`
 - [x] Camera UI 持续喂帧给 `cameraPerceiver.addFrame()`
+  - [x] Android emulator 设备实测：启动日志显示后置相机打开并进入 `STREAMING`，JS 日志出现 `[CameraPerceiver] First camera frame buffered`
 - [ ] "记住这个放这了" 设备端手动验证
 
 ## Step 6: APP 端 — UI 展示证据图片
@@ -117,6 +118,7 @@
 - [x] `pnpm exec expo config --type public`
 - [x] `cd server && pnpm build`
 - [x] `cd server && pnpm test`
+  - [x] vision server 默认端口改为 `8082`，避免 Expo/Metro 占用 `8081` 时视觉 E2E 打到错误服务；真实截图经 `/api/vision/describe` 返回中文描述
 - [x] `pnpm exec expo prebuild --clean --no-install`：新增 `expo-file-system` 直接依赖、`expo-audio` 迁移后重新生成原生工程通过
 - [x] `cd android && JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew :app:assembleDebug`
 - [x] Android emulator 启动日志验证：JS bundle 正常加载，Sherpa JNI 加载，KWS 初始化完成且持续接收音频样本

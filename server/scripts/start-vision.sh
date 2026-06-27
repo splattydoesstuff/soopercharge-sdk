@@ -8,6 +8,7 @@ SERVER_DIR="$(dirname "$SCRIPT_DIR")"
 # Paths - adjust these to your local setup
 LLAMA_SERVER="${LLAMA_SERVER:-$HOME/tools/llama.cpp/build/bin/llama-server}"
 MODEL_DIR="${MODEL_DIR:-$HOME/models/minicpm-v-2.6}"
+VISION_PORT="${VISION_PORT:-8082}"
 MODEL="${MODEL_DIR}/ggml-model-Q4_K_M.gguf"
 MMPROJ="${MODEL_DIR}/mmproj-model-f16.gguf"
 
@@ -30,11 +31,11 @@ if [ ! -f "$MMPROJ" ]; then
   exit 1
 fi
 
-echo "🚀 Starting MiniCPM-V vision server on port 8081..."
+echo "🚀 Starting MiniCPM-V vision server on port ${VISION_PORT}..."
 exec "$LLAMA_SERVER" \
   --model "$MODEL" \
   --mmproj "$MMPROJ" \
-  --port 8081 \
+  --port "$VISION_PORT" \
   --host 0.0.0.0 \
   -ngl 99 \
   -c 4096 \

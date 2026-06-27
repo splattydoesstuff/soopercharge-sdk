@@ -17,7 +17,7 @@ export const config = {
     host: process.env.HOST || "0.0.0.0",
   },
   vision: {
-    serverUrl: process.env.VISION_SERVER_URL || "http://localhost:8081",
+    serverUrl: process.env.VISION_SERVER_URL || "http://localhost:8082",
     enabled: process.env.VISION_ENABLED !== "false",
   },
 } as const;
