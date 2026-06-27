@@ -3,6 +3,7 @@ import SherpaOnnx, {
   type KWSModelConfig,
   type SpeakerIdModelConfig,
 } from "@siteed/sherpa-onnx.rn";
+import { checkSherpaModelFiles, formatSherpaModelError } from "./sherpa-models";
 
 const DEFAULT_STT_MODEL_DIR = "sherpa-onnx/asr/sensevoice";
 const DEFAULT_STT_MODEL_FILE = "model.int8.onnx";
@@ -12,6 +13,15 @@ const DEFAULT_SPEAKER_MODEL_DIR = "sherpa-onnx/speaker-id/looi";
 const DEFAULT_SPEAKER_MODEL_FILE = "model.onnx";
 const DEFAULT_KEYWORDS_FILE = "keywords.txt";
 const DEFAULT_SAMPLE_RATE = 16000;
+const ASR_REQUIRED_FILES = [DEFAULT_STT_MODEL_FILE, DEFAULT_STT_TOKENS_FILE];
+const KWS_REQUIRED_FILES = [
+  "encoder-epoch-12-avg-2-chunk-16-left-64.onnx",
+  "decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
+  "joiner-epoch-12-avg-2-chunk-16-left-64.onnx",
+  "tokens.txt",
+  DEFAULT_KEYWORDS_FILE,
+];
+const SPEAKER_REQUIRED_FILES = [DEFAULT_SPEAKER_MODEL_FILE];
 
 function env(name: string, fallback: string): string {
   return process.env[name] || fallback;
@@ -22,6 +32,27 @@ function parseIntEnv(name: string, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function getAsrRequiredFiles(config: AsrModelConfig): string[] {
+  return [
+    config.modelFiles?.model || DEFAULT_STT_MODEL_FILE,
+    config.modelFiles?.tokens || DEFAULT_STT_TOKENS_FILE,
+  ];
+}
+
+function getKwsRequiredFiles(config: KWSModelConfig): string[] {
+  return [
+    config.modelFiles?.encoder || KWS_REQUIRED_FILES[0],
+    config.modelFiles?.decoder || KWS_REQUIRED_FILES[1],
+    config.modelFiles?.joiner || KWS_REQUIRED_FILES[2],
+    config.modelFiles?.tokens || KWS_REQUIRED_FILES[3],
+    config.keywordsFile || DEFAULT_KEYWORDS_FILE,
+  ];
+}
+
+function getSpeakerRequiredFiles(config: SpeakerIdModelConfig): string[] {
+  return [config.modelFile || DEFAULT_SPEAKER_MODEL_FILE];
 }
 
 export function getSherpaAsrConfig(): AsrModelConfig {
@@ -68,6 +99,7 @@ export class SherpaVoiceAdapter {
 
   async initializeAsr(config: AsrModelConfig = getSherpaAsrConfig()): Promise<void> {
     if (this.asrReady) return;
+    await this.assertModelFilesReady("asr", config.modelDir, getAsrRequiredFiles(config));
     const result = await SherpaOnnx.ASR.initialize(config);
     if (!result.success) {
       throw new Error(result.error || "Sherpa ASR initialization failed");
@@ -86,6 +118,7 @@ export class SherpaVoiceAdapter {
 
   async initializeKws(config: KWSModelConfig = getSherpaKwsConfig()): Promise<void> {
     if (this.kwsReady) return;
+    await this.assertModelFilesReady("kws", config.modelDir, getKwsRequiredFiles(config));
     const result = await SherpaOnnx.KWS.init(config);
     if (!result.success) {
       throw new Error(result.error || "Sherpa KWS initialization failed");
@@ -102,6 +135,11 @@ export class SherpaVoiceAdapter {
     config: SpeakerIdModelConfig = getSherpaSpeakerConfig()
   ): Promise<void> {
     if (this.speakerReady) return;
+    await this.assertModelFilesReady(
+      "speaker",
+      config.modelDir,
+      getSpeakerRequiredFiles(config)
+    );
     const result = await SherpaOnnx.SpeakerId.init(config);
     if (!result.success) {
       throw new Error(result.error || "Sherpa Speaker ID initialization failed");
@@ -155,6 +193,33 @@ export class SherpaVoiceAdapter {
       throw new Error(result.error || "Sherpa speaker verification failed");
     }
     return result.verified;
+  }
+
+  async checkModelReadiness() {
+    const asrConfig = getSherpaAsrConfig();
+    const kwsConfig = getSherpaKwsConfig();
+    const speakerConfig = getSherpaSpeakerConfig();
+
+    return {
+      asr: await checkSherpaModelFiles("asr", asrConfig.modelDir, getAsrRequiredFiles(asrConfig)),
+      kws: await checkSherpaModelFiles("kws", kwsConfig.modelDir, getKwsRequiredFiles(kwsConfig)),
+      speaker: await checkSherpaModelFiles(
+        "speaker",
+        speakerConfig.modelDir,
+        getSpeakerRequiredFiles(speakerConfig)
+      ),
+    };
+  }
+
+  private async assertModelFilesReady(
+    kind: "asr" | "kws" | "speaker",
+    modelDir: string,
+    requiredFiles: string[]
+  ): Promise<void> {
+    const check = await checkSherpaModelFiles(kind, modelDir, requiredFiles);
+    if (!check.ready) {
+      throw new Error(formatSherpaModelError(check));
+    }
   }
 }
 

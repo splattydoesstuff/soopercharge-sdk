@@ -32,6 +32,7 @@
 - 已在 Expo config 注册 `@siteed/audio-studio` plugin，并关闭后台录音、通知、蓝牙设备检测和电话状态权限；当前 KWS feeder 只按前台麦克风采集配置，设备后台常驻能力不作为 Phase 1 验收前提。
 - KWS feeder 已对 `AudioData` float payload 缺失做一次性 warning，并将待处理样本限制为最近 3 秒；`VoicePerceiver` 会订阅 `wakeWordEnabled` 偏好变化，运行中同步启动/停止 feeder。
 - 已添加 `scripts/download-sherpa-models.sh` 和 `docs/phase1-sherpa-models.md`，用于下载 SenseVoice/KWS/Speaker 模型到未提交的 `app-models/sherpa-onnx/`，目录结构对齐设备端 `documentDirectory/sherpa-onnx/`。
+- 已新增设备端模型文件自检：`src/voice/sherpa-models.ts` 会检查 ASR/KWS/Speaker 必需文件，`sherpaVoiceAdapter` 在 native 初始化前先报清晰缺失清单，设置页“语音模型”可直接查看 ready/missing 状态。
 - `pnpm exec expo prebuild --clean --no-install` 已通过；`cd ios && pod install` 已通过，CocoaPods autolink 到 `sherpa-onnx-rn (1.3.1)` 并生成 `SherpaOnnxSpec`。
 - Android native debug 构建已通过：安装 Homebrew `openjdk@17` 后使用 `JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew :app:assembleDebug`，Gradle 自动安装所需 Android SDK/NDK/CMake，`siteed-audio-studio` 与 `siteed_sherpa-onnx.rn` Kotlin/Java/CMake 编译和 APK 打包均成功。
 - iOS simulator build 仍未通过：本机 Xcode 缺 `DVTDownloads.framework`，卡在 `IDESimulatorFoundation` 加载阶段。该项仍是工具链 blocker，不代表 iOS sherpa native 编译已通过。

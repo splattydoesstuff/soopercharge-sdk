@@ -66,7 +66,8 @@
 - [ ] iOS sherpa-onnx KWS + Speaker ID 设备构建验证
 - [x] Android sherpa-onnx KWS + Speaker ID native debug 构建验证：`JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew :app:assembleDebug` 通过
 - [x] 添加 KWS/Speaker/SenseVoice 模型下载脚本和未提交资产目录
-- [ ] 执行模型下载并确认设备运行时路径
+- [x] 设备端模型路径自检：ASR/KWS/Speaker 初始化前检查 `documentDirectory/sherpa-onnx/...` 必需文件，设置页显示缺失清单
+- [ ] 执行模型下载并拷贝到设备 `documentDirectory/sherpa-onnx/`，确认设置页模型检查全绿
 - [x] 调研 RN sherpa 候选包并记录接入风险到 `docs/phase1-native-sherpa-options.md`
 - [x] 引入 `@siteed/sherpa-onnx.rn` 并创建 `src/voice/sherpa-adapter.ts` 统一 ASR/KWS/Speaker 调用
 - [x] `src/voice/wakeword.ts` 接 `@siteed/sherpa-onnx.rn` KWS adapter，支持由音频采集层喂 PCM 样本
@@ -80,6 +81,7 @@
 - [x] KWS feeder 已处理运行中偏好切换、float PCM payload fallback、队列上限，避免静默断流和无限堆积
 - [ ] 常驻 KWS 音频采集 feeder 设备验证：确认与 STT 录音互斥切换、唤醒后恢复监听
 - [x] `src/voice/stt.ts` 接设备端 SenseVoice ASR adapter，移除服务器 STT HTTP 调用
+- [x] `expo-file-system` 直接依赖已声明，用于设备端模型文件自检
 - [x] `pnpm exec expo prebuild --clean --no-install` 生成 iOS/Android 原生工程通过
 - [x] `cd ios && pod install` 通过，已 autolink/install `sherpa-onnx-rn (1.3.1)` 并生成 `SherpaOnnxSpec`
 - [x] Android `:app:assembleDebug` 通过；本机已安装 Homebrew `openjdk@17`，并自动安装 Android SDK/NDK/CMake 依赖
@@ -98,8 +100,11 @@
 - [x] `server/tests/evidence.test.ts`
 - [x] `server/tests/observe.test.ts`
 - [x] `pnpm exec tsc --noEmit`
+- [x] `npx -y react-doctor@latest . --verbose --scope changed`：100/100，无问题
+- [x] `pnpm exec expo config --type public`
 - [x] `cd server && pnpm build`
 - [x] `cd server && pnpm test`
+- [x] `pnpm exec expo prebuild --clean --no-install`：新增 `expo-file-system` 直接依赖后重新生成原生工程通过
 - [x] `cd android && JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew :app:assembleDebug`
 - [ ] APP 手动冒烟测试：纯语音、视觉记事、检索+证据、日历提醒、KWS+声纹、iOS+Android
 

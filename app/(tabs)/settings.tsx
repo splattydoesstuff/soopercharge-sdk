@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useReducer, useEffect } from "react";
 import {
   StyleSheet,
   View,
@@ -13,6 +13,94 @@ import { useUserStore } from "@/src/store/user";
 import { checkServerHealth } from "@/src/server-api/client";
 import { speakerIdService } from "@/src/voice/speaker-id";
 import { sttService } from "@/src/voice/stt";
+import { sherpaVoiceAdapter } from "@/src/voice/sherpa-adapter";
+import type { SherpaModelCheck } from "@/src/voice/sherpa-models";
+
+type SherpaModelStatus = {
+  asr: SherpaModelCheck;
+  kws: SherpaModelCheck;
+  speaker: SherpaModelCheck;
+};
+
+type SettingsUiState = {
+  enrollment: {
+    recording: boolean;
+    saving: boolean;
+    error: string | null;
+  };
+  models: {
+    status: SherpaModelStatus | null;
+    checking: boolean;
+    error: string | null;
+  };
+};
+
+type SettingsUiAction =
+  | { type: "enrollment/start-recording" }
+  | { type: "enrollment/start-saving" }
+  | { type: "enrollment/saved" }
+  | { type: "enrollment/failed"; error: string }
+  | { type: "models/checking" }
+  | { type: "models/checked"; status: SherpaModelStatus }
+  | { type: "models/failed"; error: string };
+
+const initialSettingsUiState: SettingsUiState = {
+  enrollment: {
+    recording: false,
+    saving: false,
+    error: null,
+  },
+  models: {
+    status: null,
+    checking: false,
+    error: null,
+  },
+};
+
+function settingsUiReducer(
+  state: SettingsUiState,
+  action: SettingsUiAction
+): SettingsUiState {
+  switch (action.type) {
+    case "enrollment/start-recording":
+      return {
+        ...state,
+        enrollment: { recording: true, saving: false, error: null },
+      };
+    case "enrollment/start-saving":
+      return {
+        ...state,
+        enrollment: { recording: false, saving: true, error: null },
+      };
+    case "enrollment/saved":
+      return {
+        ...state,
+        enrollment: { recording: false, saving: false, error: null },
+      };
+    case "enrollment/failed":
+      return {
+        ...state,
+        enrollment: { recording: false, saving: false, error: action.error },
+      };
+    case "models/checking":
+      return {
+        ...state,
+        models: { ...state.models, checking: true, error: null },
+      };
+    case "models/checked":
+      return {
+        ...state,
+        models: { status: action.status, checking: false, error: null },
+      };
+    case "models/failed":
+      return {
+        ...state,
+        models: { ...state.models, checking: false, error: action.error },
+      };
+    default:
+      return state;
+  }
+}
 
 export default function SettingsScreen() {
   const colorScheme = useColorScheme();
@@ -27,9 +115,10 @@ export default function SettingsScreen() {
     setVoiceEnrolled,
     setVoiceState,
   } = useUserStore();
-  const [enrolling, setEnrolling] = useState(false);
-  const [savingEnrollment, setSavingEnrollment] = useState(false);
-  const [enrollmentError, setEnrollmentError] = useState<string | null>(null);
+  const [uiState, dispatchUi] = useReducer(settingsUiReducer, initialSettingsUiState);
+  const { recording: enrolling, saving: savingEnrollment, error: enrollmentError } =
+    uiState.enrollment;
+  const { status: modelStatus, checking: checkingModels, error: modelError } = uiState.models;
 
   const checkConnection = useCallback(async () => {
     const connected = await checkServerHealth();
@@ -39,6 +128,22 @@ export default function SettingsScreen() {
   useEffect(() => {
     checkConnection();
   }, [checkConnection]);
+
+  const checkSherpaModels = useCallback(async () => {
+    dispatchUi({ type: "models/checking" });
+
+    try {
+      const status = await sherpaVoiceAdapter.checkModelReadiness();
+      dispatchUi({ type: "models/checked", status });
+    } catch (error) {
+      console.error("[Settings] Failed to check sherpa models:", error);
+      dispatchUi({ type: "models/failed", error: "模型检查失败" });
+    }
+  }, []);
+
+  useEffect(() => {
+    checkSherpaModels();
+  }, [checkSherpaModels]);
 
   useEffect(() => {
     speakerIdService
@@ -50,16 +155,14 @@ export default function SettingsScreen() {
   const startEnrollment = useCallback(async () => {
     if (enrolling || savingEnrollment) return;
 
-    setEnrollmentError(null);
-    setEnrolling(true);
+    dispatchUi({ type: "enrollment/start-recording" });
     setVoiceState("listening");
 
     try {
       await sttService.startRecording();
     } catch (error) {
       console.error("[Settings] Failed to start speaker enrollment:", error);
-      setEnrollmentError("录音启动失败");
-      setEnrolling(false);
+      dispatchUi({ type: "enrollment/failed", error: "录音启动失败" });
       setVoiceState("sleeping");
     }
   }, [enrolling, savingEnrollment, setVoiceState]);
@@ -67,21 +170,19 @@ export default function SettingsScreen() {
   const finishEnrollment = useCallback(async () => {
     if (!enrolling) return;
 
-    setEnrolling(false);
-    setSavingEnrollment(true);
+    dispatchUi({ type: "enrollment/start-saving" });
     setVoiceState("verifying");
 
     try {
       const audioUri = await sttService.stopRecording();
       await speakerIdService.enrollFromFile(audioUri);
       setVoiceEnrolled(true);
-      setEnrollmentError(null);
+      dispatchUi({ type: "enrollment/saved" });
     } catch (error) {
       console.error("[Settings] Failed to save speaker enrollment:", error);
-      setEnrollmentError("声纹保存失败");
+      dispatchUi({ type: "enrollment/failed", error: "声纹保存失败" });
       setVoiceEnrolled(false);
     } finally {
-      setSavingEnrollment(false);
       setVoiceState("sleeping");
     }
   }, [enrolling, setVoiceEnrolled, setVoiceState]);
@@ -124,6 +225,36 @@ export default function SettingsScreen() {
               </Text>
             </Pressable>
             {enrollmentError ? <Text style={styles.errorText}>{enrollmentError}</Text> : null}
+          </View>
+        </View>
+
+        {/* Voice models */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: isDark ? "#F9FAFB" : "#111827" }]}>
+            语音模型
+          </Text>
+          <View style={[styles.card, { backgroundColor: isDark ? "#1F2937" : "#FFFFFF" }]}>
+            {modelStatus ? (
+              <>
+                <ModelStatusRow label="SenseVoice" status={modelStatus.asr} isDark={isDark} />
+                <ModelStatusRow label="唤醒词 KWS" status={modelStatus.kws} isDark={isDark} />
+                <ModelStatusRow label="声纹 Speaker" status={modelStatus.speaker} isDark={isDark} />
+              </>
+            ) : (
+              <Text style={[styles.value, { color: isDark ? "#F9FAFB" : "#111827" }]}>
+                {checkingModels ? "检查中..." : "未检查"}
+              </Text>
+            )}
+            {modelError ? <Text style={styles.errorText}>{modelError}</Text> : null}
+            <Pressable
+              style={[styles.checkButton, checkingModels && styles.disabledButton]}
+              onPress={checkSherpaModels}
+              disabled={checkingModels}
+            >
+              <Text style={styles.checkButtonText}>
+                {checkingModels ? "检查中..." : "重新检测模型"}
+              </Text>
+            </Pressable>
           </View>
         </View>
 
@@ -212,6 +343,34 @@ export default function SettingsScreen() {
   );
 }
 
+function ModelStatusRow({
+  label,
+  status,
+  isDark,
+}: {
+  label: string;
+  status: SherpaModelCheck;
+  isDark: boolean;
+}) {
+  return (
+    <View style={styles.modelRow}>
+      <View style={styles.modelHeader}>
+        <Text style={[styles.label, { color: isDark ? "#D1D5DB" : "#374151" }]}>
+          {label}
+        </Text>
+        <Text style={[styles.value, { color: status.ready ? "#10B981" : "#EF4444" }]}>
+          {status.ready ? "已就绪" : "缺文件"}
+        </Text>
+      </View>
+      {!status.ready ? (
+        <Text style={[styles.modelMissingText, { color: isDark ? "#FCA5A5" : "#B91C1C" }]}>
+          {status.missingFiles.join(", ")}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   scrollView: { flex: 1 },
@@ -230,6 +389,13 @@ const styles = StyleSheet.create({
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   label: { fontSize: 15 },
   value: { fontSize: 15, fontWeight: "500" },
+  modelRow: { gap: 4 },
+  modelHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  modelMissingText: { fontSize: 12, lineHeight: 16 },
   checkButton: {
     backgroundColor: "#6D28D9",
     paddingVertical: 8,
