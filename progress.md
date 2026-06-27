@@ -60,18 +60,18 @@
 - [ ] 记忆列表和对话页真实图片加载验证
 
 ## Step 7: Native Module — sherpa-onnx KWS + Speaker ID + STT
-- [x] 创建 `native-modules/expo-sherpa-kws/` scaffold
-- [x] 接入 pnpm workspace + 根依赖，确保 Expo autolinking 可发现
-- [x] TS API 暴露 KWS/Speaker ID 方法
-- [ ] iOS sherpa-onnx KWS + Speaker ID 真实现
-- [ ] Android sherpa-onnx KWS + Speaker ID 真实现
+- [x] 删除未实现的 `expo-sherpa-kws` scaffold，避免旧降级模块被误接回业务链路
+- [x] `@siteed/sherpa-onnx.rn` 接入 Expo config plugin，确保 native autolinking 可发现
+- [x] TS adapter 暴露 ASR/KWS/Speaker ID 方法
+- [ ] iOS sherpa-onnx KWS + Speaker ID 设备构建验证
+- [ ] Android sherpa-onnx KWS + Speaker ID 设备构建验证
 - [ ] 下载 KWS/Speaker/SenseVoice 模型
 - [x] 调研 RN sherpa 候选包并记录接入风险到 `docs/phase1-native-sherpa-options.md`
 - [x] 引入 `@siteed/sherpa-onnx.rn` 并创建 `src/voice/sherpa-adapter.ts` 统一 ASR/KWS/Speaker 调用
-- [x] `src/voice/wakeword.ts` 接 native KWS API，按钮仅保留手动触发入口
-- [x] `src/voice/speaker-id.ts` 接 native 声纹 API，移除永远通过降级
-- [x] `expo-sherpa-kws` JS fallback 不再模拟 KWS/Speaker 通过，缺原生模块时明确失败
+- [x] `src/voice/wakeword.ts` 接 `@siteed/sherpa-onnx.rn` KWS adapter，支持由音频采集层喂 PCM 样本
+- [x] `src/voice/speaker-id.ts` 接 `@siteed/sherpa-onnx.rn` SpeakerId，支持样本/文件 embedding 注册与验证
 - [ ] VoicePerceiver 唤醒后采集声纹验证音频样本
+- [ ] 常驻 KWS 音频采集 feeder：采集麦克风 PCM 并调用 `wakewordService.acceptSamples()`
 - [x] `src/voice/stt.ts` 接设备端 SenseVoice ASR adapter，移除服务器 STT HTTP 调用
 
 ## Step 8: CalendarPerceiver → ReminderScheduler 接线

@@ -1,19 +1,4 @@
-import {
-  onKeywordDetected,
-  startKeywordListening,
-  stopKeywordListening,
-} from "expo-sherpa-kws";
-
-const DEFAULT_KWS_MODEL_DIR = "sherpa-onnx/kws";
-const DEFAULT_KEYWORDS_FILE = "sherpa-onnx/kws/keywords.txt";
-
-function getKwsModelDir(): string {
-  return process.env.EXPO_PUBLIC_SHERPA_KWS_MODEL_DIR || DEFAULT_KWS_MODEL_DIR;
-}
-
-function getKeywordsFile(): string {
-  return process.env.EXPO_PUBLIC_SHERPA_KEYWORDS_FILE || DEFAULT_KEYWORDS_FILE;
-}
+import { sherpaVoiceAdapter } from "./sherpa-adapter";
 
 export type WakewordState = "idle" | "listening" | "detected" | "unavailable";
 
@@ -21,15 +6,15 @@ type WakewordCallback = () => void;
 
 export class WakewordService {
   private listeners: WakewordCallback[] = [];
-  private nativeUnsubscribe: (() => void) | null = null;
+  private listening = false;
   private _state: WakewordState = "idle";
 
   async start(): Promise<void> {
-    if (this.nativeUnsubscribe) return;
+    if (this.listening) return;
 
     try {
-      await startKeywordListening(getKwsModelDir(), getKeywordsFile());
-      this.nativeUnsubscribe = onKeywordDetected(() => this.notifyDetected());
+      await sherpaVoiceAdapter.initializeKws();
+      this.listening = true;
       this._state = "listening";
     } catch (error) {
       this._state = "unavailable";
@@ -39,13 +24,17 @@ export class WakewordService {
   }
 
   async stop(): Promise<void> {
-    if (this.nativeUnsubscribe) {
-      this.nativeUnsubscribe();
-      this.nativeUnsubscribe = null;
-    }
-
-    await stopKeywordListening();
+    this.listening = false;
     this._state = "idle";
+  }
+
+  async acceptSamples(samples: number[], sampleRate = 16000): Promise<void> {
+    if (!this.listening) return;
+
+    const result = await sherpaVoiceAdapter.acceptKwsSamples(samples, sampleRate);
+    if (result.detected) {
+      this.notifyDetected();
+    }
   }
 
   trigger(): void {
@@ -64,7 +53,7 @@ export class WakewordService {
     for (const listener of this.listeners) {
       listener();
     }
-    this._state = this.nativeUnsubscribe ? "listening" : "idle";
+    this._state = this.listening ? "listening" : "idle";
   }
 
   get state(): WakewordState {

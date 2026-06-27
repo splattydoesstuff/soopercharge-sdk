@@ -17,7 +17,6 @@
     "expo-notifications": "^56.0.18",
     "expo-router": "~56.2.11",
     "expo-secure-store": "^56.0.4",
-    "expo-sherpa-kws": "workspace:*",
     "expo-splash-screen": "~56.0.10",
     "expo-status-bar": "~56.0.4",
     "expo-symbols": "~56.0.6",

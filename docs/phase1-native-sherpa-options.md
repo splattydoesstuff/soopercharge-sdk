@@ -2,14 +2,14 @@
 
 ## 2026-06-27 调研结论
 
-当前仓库内 `native-modules/expo-sherpa-kws` 只是 Expo module scaffold，没有 sherpa-onnx 原生库、模型资产或真实音频管线。继续手写 Swift/Kotlin 需要同时解决 iOS/Android 预编译库、C API 绑定、音频采集、模型下载和设备构建验证。
+此前仓库内 `native-modules/expo-sherpa-kws` 只是 Expo module scaffold，没有 sherpa-onnx 原生库、模型资产或真实音频管线。继续手写 Swift/Kotlin 需要同时解决 iOS/Android 预编译库、C API 绑定、音频采集、模型下载和设备构建验证，因此已删除该 scaffold，统一迁到 `@siteed/sherpa-onnx.rn` adapter。
 
 已确认的 npm 候选：
 
 - `react-native-sherpa-onnx@0.4.3`
   - 提供 STT/TTS/VAD/下载管理等能力。
   - peer 依赖 `@dr.pogodin/react-native-fs`，依赖 background downloader。
-  - npm tarball 未直接覆盖当前自定义 `expo-sherpa-kws` 的 KWS/Speaker API。
+  - npm tarball 未直接覆盖此前自定义 `expo-sherpa-kws` 的 KWS/Speaker API。
 - `@siteed/sherpa-onnx.rn@1.3.1`
   - 提供 ASR、KWS、SpeakerId、VAD、TTS 等 handlers/services。
   - tarball 包含 Android `libsherpa-onnx-jni.so`、`libonnxruntime.so`，以及 iOS prebuilt headers/libs 和 bridge。
@@ -22,13 +22,14 @@
 
 - 已引入 `@siteed/sherpa-onnx.rn@1.3.1`。
 - 已注册 Expo config plugin：`@siteed/sherpa-onnx.rn/app.plugin`。
+- 已删除未实现的 `native-modules/expo-sherpa-kws` scaffold。
 - 已创建 `src/voice/sherpa-adapter.ts`，统一封装 ASR/KWS/Speaker 的配置和调用。
 - 已将 `src/voice/stt.ts` 从服务端 `/api/stt/transcribe` 改为本地 SenseVoice ASR adapter：`SherpaOnnx.ASR.recognizeFromFile()`。
 
 ## 后续路线
 
-1. 优先评估 `@siteed/sherpa-onnx.rn` 是否能同时替代当前 `expo-sherpa-kws` 的 KWS/SpeakerId scaffold，并承接设备端 STT。
-2. 若选择 `@siteed/sherpa-onnx.rn`，先创建 adapter 层，避免业务代码直接依赖第三方 API：
+1. 继续用 `@siteed/sherpa-onnx.rn` 替代此前 `expo-sherpa-kws` scaffold，并承接设备端 STT/KWS/Speaker ID。
+2. adapter 层要避免业务代码直接依赖第三方 API：
    - `src/voice/stt.ts` 只暴露现有 `startRecording()/stopAndTranscribe()`。
    - `src/voice/wakeword.ts` 只依赖统一 KWS adapter。
    - `src/voice/speaker-id.ts` 只依赖统一 Speaker adapter。

@@ -1,9 +1,0 @@
-{
-  "platforms": ["ios", "android"],
-  "ios": {
-    "modules": ["ExpoSherpaKwsModule"]
-  },
-  "android": {
-    "modules": ["expo.modules.sherpakws.ExpoSherpaKwsModule"]
-  }
-}

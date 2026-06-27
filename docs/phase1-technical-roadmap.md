@@ -642,6 +642,8 @@ interface ChatMessage {
 
 ## 七、Native Module：sherpa-onnx KWS + Speaker ID
 
+> 当前实现更新：此前规划的 `native-modules/expo-sherpa-kws` scaffold 已删除，避免未实现原生模块被误接回业务链路。Phase 1 语音栈统一走 `@siteed/sherpa-onnx.rn` + `src/voice/sherpa-adapter.ts`；本节后续 scaffold 代码块保留为历史方案参考，不应再按此重建旧模块。
+
 这是最复杂的部分。分为独立的 Expo Module。
 
 ### 7.1 架构概览

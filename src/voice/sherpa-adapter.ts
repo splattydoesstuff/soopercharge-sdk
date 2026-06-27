@@ -121,6 +121,41 @@ export class SherpaVoiceAdapter {
     }
     return embedding.embedding;
   }
+
+  async computeSpeakerFileEmbedding(fileUri: string): Promise<number[]> {
+    await this.initializeSpeaker();
+    const result = await SherpaOnnx.SpeakerId.processFile(fileUri);
+    if (!result.success) {
+      throw new Error(result.error || "Sherpa speaker file processing failed");
+    }
+    return result.embedding;
+  }
+
+  async registerSpeaker(name: string, embedding: number[]): Promise<void> {
+    await this.initializeSpeaker();
+    const result = await SherpaOnnx.SpeakerId.registerSpeaker(name, embedding);
+    if (!result.success) {
+      throw new Error(result.error || "Sherpa speaker registration failed");
+    }
+  }
+
+  async hasSpeaker(name: string): Promise<boolean> {
+    await this.initializeSpeaker();
+    const result = await SherpaOnnx.SpeakerId.getSpeakers();
+    if (!result.success) {
+      throw new Error(result.error || "Sherpa speaker list failed");
+    }
+    return result.speakers.includes(name);
+  }
+
+  async verifySpeaker(name: string, embedding: number[], threshold: number): Promise<boolean> {
+    await this.initializeSpeaker();
+    const result = await SherpaOnnx.SpeakerId.verifySpeaker(name, embedding, threshold);
+    if (!result.success) {
+      throw new Error(result.error || "Sherpa speaker verification failed");
+    }
+    return result.verified;
+  }
 }
 
 export const sherpaVoiceAdapter = new SherpaVoiceAdapter();
