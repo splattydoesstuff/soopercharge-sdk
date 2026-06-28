@@ -10,6 +10,7 @@ import { llmRoutes } from "./routes/llm.js";
 import { ttsRoutes } from "./routes/tts.js";
 import { evidenceRoutes } from "./routes/evidence.js";
 import { observeRoutes } from "./routes/observe.js";
+import { sessionRoutes } from "./routes/session.js";
 
 export async function buildServer(options: { logger?: boolean } = {}) {
   const server = Fastify({ logger: options.logger ?? true });
@@ -26,6 +27,7 @@ export async function buildServer(options: { logger?: boolean } = {}) {
   await server.register(ttsRoutes, { prefix: "/api/tts" });
   await server.register(evidenceRoutes, { prefix: "/api/evidence" });
   await server.register(observeRoutes, { prefix: "/api/observe" });
+  await server.register(sessionRoutes, { prefix: "/api/session" });
 
   // Health check
   server.get("/health", async () => ({ status: "ok", timestamp: new Date().toISOString() }));

@@ -1,89 +1,49 @@
-# LOOI UI 重设计进度
+# Home Voice Conversation Progress
 
-- [x] Step 0：执行准备
-  - [x] 为本轮 UI 工作重新创建 `progress.md`
-  - [x] 为未解决事项重新创建 `todo.md`
-  - [x] 检查当前工作树并保留无关改动
-  - [x] 确认 `package.json` 中已有 NativeWind 依赖
-  - [x] 添加 NativeWind v4 配置文件和应用入口导入
-  - [x] 通过 Expo 配置设置横屏
-- [x] Step 1：路由和应用外壳
-  - [x] 用隐藏的 Expo `Tabs` 替代可见底部 tab
-  - [x] 保留路由名：`index`、`memories`、`settings`
-  - [x] 新增路由名：`conversation`
-  - [x] 新增路由名：`reminders`
-  - [x] 新增共享 `DeviceShell`
-- [x] Step 2：机器人主页
-  - [x] 新增全屏和头像版 `RobotFace`
-  - [x] 使用 `useUserStore.voiceState` 驱动面部状态
-  - [x] 将 `index` 设为默认机器人脸主页
-  - [x] 保留主页上的 `CameraFrameFeeder` 挂载点
-  - [x] 添加临时快捷面板入口
-  - [x] 移除全屏机器人外壳、边框和呼吸光效
-  - [x] 在机器人主页隐藏 Android 系统导航栏
-  - [x] 在 Android 模拟器上跳过隐藏相机预览，避免 ANR
-  - [x] 当模拟器没有日历 provider 时让日历感知器降级
-- [x] Step 3：对话界面
-  - [x] 将对话区改成非 ChatGPT 气泡式设计
-  - [x] 保留 `VoiceButton` 触发和结束行为
-  - [x] 保留 `ChatBubble` 中的证据图片渲染
-- [x] Step 4：记忆界面
-  - [x] 按今天、昨天、更早分组记忆
-  - [x] 保留分类筛选
-  - [x] 保留 `memoryService.getAll(filters)`
-  - [x] 保留 `MemoryCard` 中的证据图片渲染
-- [x] Step 5：提醒界面
-  - [x] 添加克制的提醒页面外壳
-  - [x] 避免新增后端 schema
-  - [x] 基于现有日历和提醒能力构建 UI
-- [x] Step 6：设置界面
-  - [x] 重做为设备/能力面板
-  - [x] 保留诊断回调
-  - [x] 保留防回归检查依赖的关键文案
-- [x] Step 7：视觉系统
-  - [x] 添加 LOOI 设计 token
-  - [x] 使用低噪音的设备屏幕风格
-  - [x] 在已触达 UI 中移除 emoji 作为主要图标
-- [ ] Step 8：验证
-  - [x] 运行 `pnpm exec tsc --noEmit`
-  - [x] 运行 `pnpm test`
-  - [x] 运行 `pnpm exec expo prebuild --platform android --no-install`
-  - [x] 使用 Gradle 构建 Android debug APK
-  - [x] 使用 `adb install --no-streaming` 安装 APK 到 Android 模拟器
-  - [x] 通过 `adb dumpsys activity activities` 验证横屏
-  - [x] 通过 `adb exec-out screencap` 验证主页截图
-  - [x] 运行 React Doctor
-  - [x] 让壳内导航表现为 tab 切换
-  - [x] 通过 `adb` 验证 Settings / Memories / Reminders / Conversation 的 tab 切换
-  - [ ] 提交本轮范围内改动
-- [x] Step 9：Android 模拟器 ANR 稳定性
-  - [x] 通过 `adb` 日志、进程状态和内存指标确认 ANR 证据
-  - [x] 通过运行时 profile 停止 Android 模拟器上的 wakeword/KWS 自启动
-  - [x] 保持手动语音触发不依赖 wakeword 模型初始化
-  - [x] 裁剪 KWS 音频积压，避免持续喂入过期音频
-  - [x] 在应用生命周期切换时暂停运行时服务
-  - [x] 移除启动阶段的自动权限弹窗
-  - [x] 对 AppState pause/resume 做防抖，避免瞬时权限/弹窗抖动
-  - [x] 阻止后台 wakeword/camera feeder 主动请求麦克风/相机权限
-  - [x] 查询 Expo 权限、RN AppState、Android 模拟器加速相关官方/社区建议
-  - [x] 将 Settings 语音诊断和 Sherpa 模型检查移出静态 native import
-  - [x] 添加轻量 voice runtime facade，避免冷启动加载 Sherpa/AudioStudio
-  - [x] 懒加载隐藏相机 feeder，并在 Android 模拟器上跳过相机模块加载
-  - [x] 从冷启动移除 camera/calendar perceiver 自启动
-  - [x] 重新运行 TypeScript 和防回归测试
-  - [x] 重新运行 React Doctor 和 `adb` 验证
-  - [x] 记录最终内存、CPU、logcat 证据
-  - [x] 通过 Expo/plugin 源配置在 Android 上排除 `@siteed/audio-studio`
-    - [x] 注册本地 Expo config plugin，在 prebuild 阶段添加 Android autolinking 排除规则
-    - [x] 添加 `package.json` 的 `expo.autolinking.android.exclude`，供 Gradle `useExpoModules()` 解析
-    - [x] 从源配置重新运行 Android prebuild
-    - [x] 使用 Android Studio JBR 重新构建 debug APK
-    - [x] 验证生成的 autolinking 文件和 APK 中没有 AudioStudio native class
-    - [x] 验证模拟器 logcat 中没有 AudioStudio 初始化或音频回调刷屏
-- [ ] Step 10：设备端语音模型下载与日志降噪
-  - [x] 梳理现有 Sherpa 模型缺失检查、设置页诊断和本地下载脚本
-  - [x] 新增 App 运行时模型下载器，来源对齐官方 Hugging Face / k2-fsa release
-  - [x] 设置页在缺模型时提示用户下载，并展示阶段进度
-  - [x] 缺模型时业务链路给出可操作错误，不再静默抛 native 初始化错误
-  - [x] 清理设置页语音诊断中暴露录音原文件路径的日志和 UI 文案
-  - [x] 运行 TypeScript / 防回归测试验证
+Updated: 2026-06-28 14:05:00 CST
+
+- [x] Inspect `.claude/plans/home-voice-conversation.md` and current worktree.
+- [x] Split execution ownership:
+  - [x] Server Phase 2 + Phase 7 delegated to worker `Erdos`.
+  - [x] Client UI/store/history Phase 3 + Phase 5 + Phase 7 delegated to worker `Noether`.
+- [x] Phase 1: VAD integration
+  - [x] Add VAD model readiness and downloader support.
+  - [x] Add sherpa-onnx VAD service wrapper.
+  - [x] Route live PCM samples to VAD during listening.
+  - [x] Trigger `finishListening()` from VAD speech end and safety timeout.
+  - [x] Verify VAD API shape against installed `@siteed/sherpa-onnx.rn` package and use its public `VAD` service.
+- [x] Phase 2: pi-ai SSE LLM server migration
+  - [x] Inspect current server LLM routes and pi-ai reference implementation.
+  - [x] Add `@earendil-works/pi-ai` and remove direct `openai` dependency.
+  - [x] Replace OpenAI SDK usage with `@earendil-works/pi-ai`.
+  - [x] Add `/api/llm/generate-response-stream`.
+  - [x] Keep non-streaming LLM routes compatible.
+- [x] Phase 3: Main-screen subtitle overlay
+  - [x] Add conversation overlay UI.
+  - [x] Integrate overlay into home screen.
+  - [x] Expose streaming text/current transcript state.
+- [x] Phase 4: sentence-based TTS streaming behavior
+  - [x] Add sentence splitter/queue playback support.
+  - [x] Connect LLM streaming tokens to TTS sentence playback.
+- [x] Phase 5: image overlay
+  - [x] Add image modal.
+  - [x] Show evidence image from store/SSE done event.
+- [x] Phase 6: wakeword-to-conversation orchestration
+  - [x] Touch/continue session before recording.
+  - [x] Persist user/assistant messages.
+  - [x] Stream response to subtitles with non-streaming fallback.
+  - [x] Recover UI state on errors/SSE interruption.
+- [x] Phase 7: server sessions and conversation history page
+  - [x] Add server session storage/routes.
+  - [x] Use session history in LLM context.
+  - [x] Store closed-session summaries in Mem0 long-term memory.
+  - [x] Convert conversation tab to history viewer.
+  - [x] Add client session API methods and types.
+- [ ] Verification
+  - [x] Run app TypeScript/test checks with pnpm.
+  - [x] Run server build/tests with pnpm.
+  - [x] Run React Doctor on changed React files.
+  - [x] Runtime-smoke server `/health`, `/api/session/touch`, `/api/session/list`, `/api/session/:id/messages`, and `/api/llm/generate-response-stream`.
+  - [x] HTTP smoke measured SSE first token at ~1714ms and confirmed touch reuses the same session within 5 minutes.
+  - [x] iOS simulator build-only smoke with Expo (`output/ios-build-smoke/superlooiapp.app`).
+  - [ ] Audit against all acceptance criteria.

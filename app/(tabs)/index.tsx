@@ -4,6 +4,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { LazyCameraFrameFeeder } from "@/src/ui/LazyCameraFrameFeeder";
 import { RobotFace } from "@/src/ui/RobotFace";
+import { ConversationOverlay } from "@/src/ui/ConversationOverlay";
+import { ImageOverlay } from "@/src/ui/ImageOverlay";
 import { looiTheme } from "@/src/ui/looi-theme";
 
 const quickActions = [
@@ -33,6 +35,8 @@ export default function IndexScreen() {
           onPress={() => setQuickPanelVisible((visible) => !visible)}
         />
       </View>
+      <ConversationOverlay />
+      <ImageOverlay />
       {quickPanelVisible ? (
         <View style={styles.quickPanel}>
           <Text style={styles.quickPrompt}>今天需要我做什么？</Text>

@@ -61,6 +61,7 @@ async function getWakewordService() {
 const KWS_SAMPLE_RATE = 16000;
 const MAX_QUEUED_SAMPLES = KWS_SAMPLE_RATE * 3;
 const MAX_ACCEPT_CHUNK_SAMPLES = Math.round(KWS_SAMPLE_RATE * 0.5);
+type SamplesListener = (samples: number[], sampleRate: number) => void;
 
 const recordingConfig: RecordingConfig = {
   sampleRate: KWS_SAMPLE_RATE,
@@ -92,6 +93,8 @@ export class KwsAudioFeeder {
   private startPromise: Promise<void> | null = null;
   private stopPromise: Promise<void> | null = null;
   private warnedMissingFloatPayload = false;
+  private sampleListeners = new Set<SamplesListener>();
+  private wakewordFeedingEnabled = true;
 
   async start(): Promise<void> {
     this.desiredRunning = true;
@@ -129,6 +132,17 @@ export class KwsAudioFeeder {
 
   get isRunning(): boolean {
     return this.started;
+  }
+
+  subscribeSamples(listener: SamplesListener): () => void {
+    this.sampleListeners.add(listener);
+    return () => {
+      this.sampleListeners.delete(listener);
+    };
+  }
+
+  setWakewordFeedingEnabled(enabled: boolean): void {
+    this.wakewordFeedingEnabled = enabled;
   }
 
   private async startInternal(): Promise<void> {
@@ -201,7 +215,20 @@ export class KwsAudioFeeder {
     }
 
     const samples = Array.isArray(audioData) ? audioData : Array.from(audioData);
+    this.emitSamples(samples);
     this.enqueueSamples(samples);
+  }
+
+  private emitSamples(samples: number[]): void {
+    if (this.sampleListeners.size === 0) return;
+
+    for (const listener of this.sampleListeners) {
+      try {
+        listener(samples, KWS_SAMPLE_RATE);
+      } catch (error) {
+        console.warn("[KWS AudioFeeder] Sample listener failed:", error);
+      }
+    }
   }
 
   private enqueueSamples(samples: number[]): void {
@@ -222,6 +249,9 @@ export class KwsAudioFeeder {
       while (this.started && this.queuedSamples) {
         const samples = this.queuedSamples;
         this.queuedSamples = null;
+        if (!this.wakewordFeedingEnabled) {
+          continue;
+        }
         const chunk = samples.slice(-MAX_ACCEPT_CHUNK_SAMPLES);
         const wakewordService = await getWakewordService();
         await wakewordService.acceptSamples(chunk, KWS_SAMPLE_RATE);

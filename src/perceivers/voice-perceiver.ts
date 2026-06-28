@@ -1,4 +1,5 @@
 import { BasePerceiver } from "../core/perceiver";
+import type { MemoryResult, UserIntent } from "../core/context-service";
 import { createObservation } from "../core/observation";
 import { classifyCategory, hasVisualReference } from "../memory/metadata";
 import { wakewordService } from "../voice/wakeword";
@@ -6,13 +7,67 @@ import { kwsAudioFeeder } from "../voice/kws-audio-feeder";
 import { speakerIdService } from "../voice/speaker-id";
 import { sttService } from "../voice/stt";
 import { ttsService } from "../voice/tts";
+import { vadService } from "../voice/vad-service";
 import { useUserStore } from "../store/user";
 import { useConversationStore } from "../store/conversation";
-import { llmService, memoryService, observeService } from "../server-api/client";
+import { llmService, memoryService, observeService, sessionService } from "../server-api/client";
 import { getRuntimeProfile } from "../core/runtime-profile";
 import { cameraPerceiver } from "./camera-perceiver";
 
 const RECORDING_START_TIMEOUT_MS = 5000;
+const MAX_LISTENING_DURATION_MS = 15_000;
+const SENTENCE_BREAK_RE = /[。！？!?，,\n、]/;
+const MAX_STREAMING_SENTENCE_LENGTH = 20;
+
+type GenerateResponseResult = {
+  response: string;
+  evidenceUri?: string;
+  audioHandled: boolean;
+};
+
+class AsyncSentenceQueue implements AsyncIterable<string> {
+  private queue: string[] = [];
+  private resolvers: Array<(value: IteratorResult<string>) => void> = [];
+  private closed = false;
+
+  push(sentence: string): void {
+    const text = sentence.trim();
+    if (!text || this.closed) return;
+
+    const resolver = this.resolvers.shift();
+    if (resolver) {
+      resolver({ value: text, done: false });
+    } else {
+      this.queue.push(text);
+    }
+  }
+
+  close(): void {
+    this.closed = true;
+    while (this.resolvers.length > 0) {
+      this.resolvers.shift()?.({ value: undefined, done: true });
+    }
+  }
+
+  async next(): Promise<IteratorResult<string>> {
+    const sentence = this.queue.shift();
+    if (sentence) {
+      return { value: sentence, done: false };
+    }
+
+    if (this.closed) {
+      return { value: undefined, done: true };
+    }
+
+    return new Promise((resolve) => {
+      this.resolvers.push(resolve);
+    });
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<string> {
+    return this;
+  }
+}
 
 /**
  * VoicePerceiver — orchestrates the voice pipeline:
@@ -28,6 +83,11 @@ export class VoicePerceiver extends BasePerceiver {
   private isFinishingListening = false;
   private cancelRecordingAfterStart = false;
   private allowsWakewordAutostart = true;
+  private unsubVadSamples: (() => void) | null = null;
+  private vadHadSpeech = false;
+  private vadAccepting = false;
+  private vadQueuedSamples: number[] | null = null;
+  private listeningTimeout: ReturnType<typeof setTimeout> | null = null;
 
   async start(): Promise<void> {
     if (this.isActive) return;
@@ -64,6 +124,7 @@ export class VoicePerceiver extends BasePerceiver {
       this.unsubPreferences();
       this.unsubPreferences = null;
     }
+    await this.stopListeningVad();
   }
 
   /**
@@ -102,6 +163,20 @@ export class VoicePerceiver extends BasePerceiver {
     // before transcription, so accepted commands still require speaker verification.
     userStore.setVoiceState("listening");
     conversationStore.setListening(true);
+    conversationStore.setCurrentTranscript("");
+    conversationStore.setStreamingText("");
+    conversationStore.setOverlayVisible(true);
+
+    try {
+      const session = await sessionService.touch();
+      conversationStore.setActiveSession(session.sessionId);
+      console.log("[VoicePerceiver] Session touched", {
+        sessionId: session.sessionId,
+        isNew: session.isNew,
+      });
+    } catch (error) {
+      console.warn("[VoicePerceiver] Session touch failed; continuing locally:", error);
+    }
 
     const startRecordingPromise = this.startRecordingForListening();
     this.startRecordingPromise = startRecordingPromise;
@@ -176,6 +251,8 @@ export class VoicePerceiver extends BasePerceiver {
       userStore.setVoiceState("processing");
       conversationStore.setProcessing(true);
 
+      await this.stopListeningVad();
+
       // Step 2: Stop recording and verify owner before accepting the command.
       const audioUri = await sttService.stopRecording();
       console.log("[VoicePerceiver] Recording stopped", { audioUri });
@@ -206,7 +283,7 @@ export class VoicePerceiver extends BasePerceiver {
       }
 
       conversationStore.setCurrentTranscript(transcript);
-      conversationStore.addMessage({ role: "user", content: transcript });
+      await conversationStore.appendMessage({ role: "user", content: transcript });
 
       // Step 4: Emit observation
       const category = classifyCategory(transcript);
@@ -219,6 +296,7 @@ export class VoicePerceiver extends BasePerceiver {
       console.log("[VoicePerceiver] Intent classified", { intent });
       let response: string;
       let evidenceUri: string | undefined;
+      let audioHandled = false;
 
       if (intent === "store" && hasVisualReference(transcript) && cameraPerceiver.hasFrame) {
         const latestFrame = cameraPerceiver.getLatestFrame();
@@ -251,31 +329,43 @@ export class VoicePerceiver extends BasePerceiver {
           observation.metadata
         );
         console.log("[VoicePerceiver] Memory stored");
-        response = await llmService.generateResponse(intent, {
+        const result = await this.generateResponseWithOverlay(intent, {
           facts: [],
           transcript,
         });
+        response = result.response;
+        evidenceUri = result.evidenceUri;
+        audioHandled = result.audioHandled;
       } else if (intent === "search") {
         const facts = await memoryService.search(transcript);
         console.log("[VoicePerceiver] Memory searched", { facts: facts.length });
-        response = await llmService.generateResponse(intent, { facts, transcript });
+        const result = await this.generateResponseWithOverlay(intent, { facts, transcript });
+        response = result.response;
         evidenceUri = facts.find((fact) => fact.metadata?.evidenceUri)?.metadata?.evidenceUri;
+        evidenceUri = result.evidenceUri ?? evidenceUri;
+        audioHandled = result.audioHandled;
       } else {
-        response = await llmService.generateResponse(intent, {
+        const result = await this.generateResponseWithOverlay(intent, {
           facts: [],
           transcript,
         });
+        response = result.response;
+        evidenceUri = result.evidenceUri;
+        audioHandled = result.audioHandled;
       }
 
       // Step 6: Add assistant response
       console.log("[VoicePerceiver] Assistant response generated", { response });
-      conversationStore.addMessage({ role: "assistant", content: response, evidenceUri });
+      await conversationStore.appendMessage({ role: "assistant", content: response, evidenceUri });
+      if (evidenceUri) {
+        conversationStore.showImageOverlay(evidenceUri);
+      }
 
       // Step 7: TTS playback
       userStore.setVoiceState("speaking");
       conversationStore.setSpeaking(true);
 
-      if (userStore.preferences.ttsEnabled) {
+      if (userStore.preferences.ttsEnabled && !audioHandled) {
         await ttsService.speak({ text: response });
       }
     } catch (error) {
@@ -284,7 +374,7 @@ export class VoicePerceiver extends BasePerceiver {
       }
 
       console.warn("[VoicePerceiver] Processing stopped:", error);
-      conversationStore.addMessage({
+      await conversationStore.appendMessage({
         role: "assistant",
         content: "抱歉，处理时出了点问题，请再试一次。",
       });
@@ -292,10 +382,115 @@ export class VoicePerceiver extends BasePerceiver {
       userStore.setVoiceState("sleeping");
       conversationStore.setProcessing(false);
       conversationStore.setSpeaking(false);
+      setTimeout(() => {
+        useConversationStore.getState().setOverlayVisible(false);
+      }, 3000);
       this.isFinishingListening = false;
       await sttService.resumeWakewordFeederIfPaused();
       await this.restartWakewordFeederIfNeeded();
     }
+  }
+
+  private async generateResponseWithOverlay(
+    intent: UserIntent,
+    context: {
+      facts: MemoryResult[];
+      transcript: string;
+    }
+  ): Promise<GenerateResponseResult> {
+    const sessionId = useConversationStore.getState().activeSessionId;
+    useConversationStore.getState().setStreamingText("");
+    let streamedEvidenceUri: string | undefined;
+
+    if (llmService.generateResponseStream) {
+      let streamedText = "";
+      let sentenceBuffer = "";
+      const sentenceQueue = new AsyncSentenceQueue();
+      const shouldSpeak = useUserStore.getState().preferences.ttsEnabled;
+      const ttsPromise = shouldSpeak
+        ? ttsService.speakSentences(sentenceQueue, {
+            onSentenceStart: () => {
+              useUserStore.getState().setVoiceState("speaking");
+              useConversationStore.getState().setSpeaking(true);
+            },
+          })
+        : Promise.resolve();
+
+      try {
+        for await (const event of llmService.generateResponseStream({
+          sessionId,
+          intent,
+          facts: context.facts,
+          transcript: context.transcript,
+        })) {
+          if (event.type === "token") {
+            streamedText += event.text;
+            sentenceBuffer += event.text;
+            useConversationStore.getState().appendStreamingText(event.text);
+            sentenceBuffer = this.flushCompleteSentences(sentenceBuffer, sentenceQueue);
+          } else if (event.type === "done") {
+            const fullText = event.fullText || streamedText;
+            streamedEvidenceUri = event.evidenceUri;
+            sentenceQueue.push(sentenceBuffer);
+            sentenceBuffer = "";
+            sentenceQueue.close();
+            await ttsPromise;
+            useConversationStore.getState().setStreamingText(fullText);
+            if (event.evidenceUri) {
+              useConversationStore.getState().showImageOverlay(event.evidenceUri);
+            }
+            return {
+              response: fullText,
+              evidenceUri: event.evidenceUri,
+              audioHandled: shouldSpeak,
+            };
+          } else if (event.type === "error") {
+            throw new Error(event.message);
+          }
+        }
+
+        sentenceQueue.push(sentenceBuffer);
+        sentenceQueue.close();
+        await ttsPromise;
+        if (streamedText) {
+          return {
+            response: streamedText,
+            evidenceUri: streamedEvidenceUri,
+            audioHandled: shouldSpeak,
+          };
+        }
+      } catch (error) {
+        sentenceQueue.close();
+        await ttsPromise.catch(() => undefined);
+        console.warn("[VoicePerceiver] Streaming response failed; using fallback:", error);
+        useConversationStore.getState().setStreamingText("");
+      }
+    }
+
+    const response = await llmService.generateResponse(intent, context);
+    useConversationStore.getState().setStreamingText(response);
+    return { response, audioHandled: false };
+  }
+
+  private flushCompleteSentences(buffer: string, queue: AsyncSentenceQueue): string {
+    let remaining = buffer;
+    let splitIndex = this.findSentenceSplitIndex(remaining);
+
+    while (splitIndex >= 0) {
+      queue.push(remaining.slice(0, splitIndex + 1));
+      remaining = remaining.slice(splitIndex + 1);
+      splitIndex = this.findSentenceSplitIndex(remaining);
+    }
+
+    return remaining;
+  }
+
+  private findSentenceSplitIndex(text: string): number {
+    const punctuationIndex = text.search(SENTENCE_BREAK_RE);
+    if (punctuationIndex >= 0) {
+      return punctuationIndex;
+    }
+    return text.length >= MAX_STREAMING_SENTENCE_LENGTH ? text.length - 1 : -1;
   }
 
   private async startRecordingForListening(): Promise<void> {
@@ -307,7 +502,9 @@ export class VoicePerceiver extends BasePerceiver {
       await sttService.startRecording();
       if (this.cancelRecordingAfterStart) {
         await sttService.cancel();
+        return;
       }
+      await this.startListeningVad();
     } catch (error) {
       console.error("[VoicePerceiver] Failed to start recording:", error);
       userStore.setVoiceState("sleeping");
@@ -315,6 +512,89 @@ export class VoicePerceiver extends BasePerceiver {
       await this.restartWakewordFeederIfNeeded();
     } finally {
       this.cancelRecordingAfterStart = false;
+    }
+  }
+
+  private async startListeningVad(): Promise<void> {
+    await this.stopListeningVad();
+    this.vadHadSpeech = false;
+    this.vadQueuedSamples = null;
+
+    try {
+      await vadService.start();
+    } catch (error) {
+      console.warn("[VoicePerceiver] VAD unavailable; using safety timeout only:", error);
+    }
+
+    this.unsubVadSamples = kwsAudioFeeder.subscribeSamples((samples, sampleRate) => {
+      this.enqueueVadSamples(samples, sampleRate);
+    });
+    kwsAudioFeeder.setWakewordFeedingEnabled(false);
+
+    try {
+      await kwsAudioFeeder.start();
+    } catch (error) {
+      console.warn("[VoicePerceiver] Failed to start VAD audio feeder:", error);
+    }
+
+    this.listeningTimeout = setTimeout(() => {
+      console.log("[VoicePerceiver] Listening safety timeout reached");
+      this.finishListening();
+    }, MAX_LISTENING_DURATION_MS);
+  }
+
+  private async stopListeningVad(): Promise<void> {
+    if (this.listeningTimeout) {
+      clearTimeout(this.listeningTimeout);
+      this.listeningTimeout = null;
+    }
+
+    if (this.unsubVadSamples) {
+      this.unsubVadSamples();
+      this.unsubVadSamples = null;
+    }
+
+    this.vadQueuedSamples = null;
+    this.vadHadSpeech = false;
+    kwsAudioFeeder.setWakewordFeedingEnabled(true);
+
+    if (kwsAudioFeeder.isRunning && !this.shouldRunWakewordFeeder()) {
+      await kwsAudioFeeder.stop();
+    }
+
+    await vadService.reset().catch(() => undefined);
+  }
+
+  private enqueueVadSamples(samples: number[], sampleRate: number): void {
+    this.vadQueuedSamples = this.vadQueuedSamples ? this.vadQueuedSamples.concat(samples) : samples;
+    if (!this.vadAccepting) {
+      this.drainVadSamples(sampleRate);
+    }
+  }
+
+  private async drainVadSamples(sampleRate: number): Promise<void> {
+    this.vadAccepting = true;
+
+    try {
+      while (this.unsubVadSamples && this.vadQueuedSamples) {
+        const samples = this.vadQueuedSamples;
+        this.vadQueuedSamples = null;
+        const result = await vadService.acceptSamples(samples, sampleRate);
+        if (result.isSpeechDetected || (result.segments?.length ?? 0) > 0) {
+          this.vadHadSpeech = true;
+        } else if (this.vadHadSpeech && sttService.recording_active) {
+          console.log("[VoicePerceiver] VAD detected speech end");
+          this.finishListening();
+          break;
+        }
+      }
+    } catch (error) {
+      console.warn("[VoicePerceiver] Failed to process VAD samples:", error);
+    } finally {
+      this.vadAccepting = false;
+      if (this.unsubVadSamples && this.vadQueuedSamples) {
+        this.drainVadSamples(sampleRate);
+      }
     }
   }
 

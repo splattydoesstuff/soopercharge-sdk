@@ -1,177 +1,427 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer } from "react";
 import {
+  ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
-  Platform,
+  Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { LazyCameraFrameFeeder } from "@/src/ui/LazyCameraFrameFeeder";
+import { ChatMessage, SessionSummary } from "@/src/core/context-service";
+import { sessionService } from "@/src/server-api/client";
+import { useConversationStore } from "@/src/store/conversation";
 import { ChatBubble } from "@/src/ui/ChatBubble";
 import { DeviceShell } from "@/src/ui/DeviceShell";
-import { VoiceButton } from "@/src/ui/VoiceButton";
-import { looiStatusLabels, looiTheme } from "@/src/ui/looi-theme";
-import { ChatMessage, useConversationStore } from "@/src/store/conversation";
-import { useUserStore } from "@/src/store/user";
+import { looiTheme } from "@/src/ui/looi-theme";
+
+type LoadedMessages = Record<string, ChatMessage[]>;
+
+type HistoryState = {
+  sessions: SessionSummary[];
+  expandedSessionId: string | null;
+  loadedMessages: LoadedMessages;
+  loading: boolean;
+  refreshing: boolean;
+  error: string | null;
+};
+
+type HistoryAction =
+  | { type: "load:start"; refresh: boolean }
+  | { type: "load:success"; sessions: SessionSummary[] }
+  | { type: "load:error"; error: string }
+  | { type: "messages:success"; sessionId: string; messages: ChatMessage[] }
+  | { type: "messages:error"; error: string }
+  | { type: "toggle"; sessionId: string };
+
+const initialHistoryState: HistoryState = {
+  sessions: [],
+  expandedSessionId: null,
+  loadedMessages: {},
+  loading: true,
+  refreshing: false,
+  error: null,
+};
+
+function historyReducer(state: HistoryState, action: HistoryAction): HistoryState {
+  switch (action.type) {
+    case "load:start":
+      return {
+        ...state,
+        loading: !action.refresh,
+        refreshing: action.refresh,
+        error: null,
+      };
+    case "load:success":
+      return {
+        ...state,
+        sessions: action.sessions,
+        loading: false,
+        refreshing: false,
+      };
+    case "load:error":
+      return {
+        ...state,
+        loading: false,
+        refreshing: false,
+        error: action.error,
+      };
+    case "messages:success":
+      return {
+        ...state,
+        loadedMessages: {
+          ...state.loadedMessages,
+          [action.sessionId]: action.messages,
+        },
+      };
+    case "messages:error":
+      return { ...state, error: action.error };
+    case "toggle":
+      return {
+        ...state,
+        expandedSessionId:
+          state.expandedSessionId === action.sessionId ? null : action.sessionId,
+      };
+    default:
+      return state;
+  }
+}
 
 export default function ConversationScreen() {
   const router = useRouter();
-  const messages = useConversationStore((state) => state.messages);
-  const isProcessing = useConversationStore((state) => state.isProcessing);
-  const isListening = useConversationStore((state) => state.isListening);
-  const currentTranscript = useConversationStore((state) => state.currentTranscript);
-  const voiceState = useUserStore((state) => state.voiceState);
-  const flatListRef = useRef<FlatList<ChatMessage>>(null);
-  const renderMessage = useCallback(
-    ({ item }: { item: ChatMessage }) => <ChatBubble message={item} isDark />,
-    []
+  const activeSessionId = useConversationStore((state) => state.activeSessionId);
+  const activeMessages = useConversationStore((state) => state.messages);
+  const [state, dispatch] = useReducer(historyReducer, initialHistoryState);
+  const { sessions, expandedSessionId, loadedMessages, loading, refreshing, error } = state;
+
+  const orderedSessions = useMemo(() => {
+    const activeSession = activeSessionId
+      ? sessions.find((session) => session.id === activeSessionId)
+      : undefined;
+    const rest = sessions.filter((session) => session.id !== activeSessionId);
+    return activeSession ? [activeSession, ...rest] : rest;
+  }, [activeSessionId, sessions]);
+
+  const loadSessions = useCallback(async (isRefresh = false) => {
+    dispatch({ type: "load:start", refresh: isRefresh });
+
+    try {
+      const result = await sessionService.listSessions({ limit: 40 });
+      dispatch({ type: "load:success", sessions: result.sessions });
+    } catch (loadError) {
+      console.warn("[ConversationScreen] Failed to load sessions:", loadError);
+      dispatch({ type: "load:error", error: "暂时无法读取历史会话。请确认本地服务已启动。" });
+    }
+  }, []);
+
+  const loadMessages = useCallback(
+    async (sessionId: string) => {
+      if (sessionId === activeSessionId && activeMessages.length > 0) {
+        dispatch({ type: "messages:success", sessionId, messages: activeMessages });
+        return;
+      }
+
+      if (loadedMessages[sessionId]) {
+        return;
+      }
+
+      try {
+        const result = await sessionService.getMessages(sessionId);
+        dispatch({ type: "messages:success", sessionId, messages: result.messages });
+      } catch (loadError) {
+        console.warn("[ConversationScreen] Failed to load messages:", loadError);
+        dispatch({ type: "messages:error", error: "会话消息读取失败。" });
+      }
+    },
+    [activeMessages, activeSessionId, loadedMessages]
+  );
+
+  const toggleSession = useCallback(
+    (sessionId: string) => {
+      const nextId = expandedSessionId === sessionId ? null : sessionId;
+      dispatch({ type: "toggle", sessionId });
+      if (nextId) {
+        loadMessages(nextId);
+      }
+    },
+    [expandedSessionId, loadMessages]
   );
 
   useEffect(() => {
-    if (messages.length === 0) return;
-    const timer = setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-    return () => clearTimeout(timer);
-  }, [messages.length]);
+    loadSessions();
+  }, [loadSessions]);
+
+  useEffect(() => {
+    if (activeSessionId) {
+      dispatch({ type: "messages:success", sessionId: activeSessionId, messages: activeMessages });
+    }
+  }, [activeMessages, activeSessionId]);
+
+  const renderSession = useCallback(
+    ({ item }: { item: SessionSummary }) => {
+      const isExpanded = expandedSessionId === item.id;
+      const isActive = item.id === activeSessionId;
+      const messages = loadedMessages[item.id] ?? [];
+
+      return (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => toggleSession(item.id)}
+          style={[styles.sessionCard, isActive && styles.activeSessionCard]}
+        >
+          <View style={styles.sessionHeader}>
+            <View style={styles.sessionTitleGroup}>
+              <View style={styles.sessionTitleRow}>
+                <Text style={styles.sessionTitle}>{formatSessionTitle(item)}</Text>
+                {isActive ? <Text style={styles.activeBadge}>进行中</Text> : null}
+              </View>
+              <Text style={styles.sessionMeta}>
+                {formatTimeRange(item)} · {item.messageCount} 条消息
+              </Text>
+            </View>
+            <Text style={styles.expandMark}>{isExpanded ? "收起" : "查看"}</Text>
+          </View>
+
+          <Text numberOfLines={isExpanded ? 4 : 2} style={styles.summaryText}>
+            {item.summary || (isActive ? "当前会话还在进行中。" : "暂无摘要。")}
+          </Text>
+
+          {isExpanded ? (
+            <View style={styles.messageList}>
+              {messages.length > 0 ? (
+                messages.map((message) => (
+                  <ChatBubble key={message.id} message={message} isDark />
+                ))
+              ) : (
+                <View style={styles.messagesLoading}>
+                  <ActivityIndicator color={looiTheme.cyan} />
+                  <Text style={styles.messagesLoadingText}>读取消息中</Text>
+                </View>
+              )}
+            </View>
+          ) : null}
+        </Pressable>
+      );
+    },
+    [activeSessionId, expandedSessionId, loadedMessages, toggleSession]
+  );
 
   return (
     <DeviceShell
-      title="对话"
-      eyebrow="VOICE SPACE"
+      title="历史"
+      eyebrow="SESSION LOG"
       scroll={false}
       onReturnHome={() => router.replace("/")}
     >
-      <KeyboardAvoidingView
-        style={styles.conversation}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <LazyCameraFrameFeeder />
-        <View style={styles.signalHeader}>
-          <View>
-            <Text style={styles.signalLabel}>当前链路</Text>
-            <Text style={styles.signalValue}>
-              {isListening ? "正在收音" : isProcessing ? "正在推理" : looiStatusLabels[voiceState]}
-            </Text>
-          </View>
-          <View style={styles.signalBars}>
-            {[0, 1, 2, 3].map((index) => (
-              <View
-                key={index}
-                style={[
-                  styles.signalBar,
-                  (isListening || isProcessing) && {
-                    height: 18 + index * 5,
-                    opacity: 0.9,
-                  },
-                ]}
-              />
-            ))}
-          </View>
+      <View style={styles.screen}>
+        <View style={styles.headerBand}>
+          <Text style={styles.headerLabel}>会话记录</Text>
+          <Text style={styles.headerValue}>
+            {activeSessionId ? "主屏幕对话会自动归档到这里" : "等待新的会话"}
+          </Text>
         </View>
 
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          style={styles.timeline}
-          keyExtractor={(item) => item.id}
-          renderItem={renderMessage}
-          contentContainerStyle={[
-            styles.timelineContent,
-            messages.length === 0 && styles.timelineEmpty,
-          ]}
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={
-            <View style={styles.emptyConversation}>
-              <Text style={styles.emptyTitle}>安静待命</Text>
-              <Text style={styles.emptyBody}>
-                {currentTranscript || "按住控制器说话，LOOI 会在这里留下必要的回应。"}
-              </Text>
-            </View>
-          }
-        />
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-        <View style={styles.voiceDock}>
-          <VoiceButton />
-        </View>
-      </KeyboardAvoidingView>
+        {loading ? (
+          <View style={styles.loadingState}>
+            <ActivityIndicator color={looiTheme.cyan} />
+            <Text style={styles.loadingText}>读取历史会话</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={orderedSessions}
+            keyExtractor={(item) => item.id}
+            renderItem={renderSession}
+            contentContainerStyle={[
+              styles.listContent,
+              orderedSessions.length === 0 && styles.emptyListContent,
+            ]}
+            refreshing={refreshing}
+            onRefresh={() => loadSessions(true)}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyTitle}>还没有历史会话</Text>
+                <Text style={styles.emptyBody}>回到主屏幕唤醒 LOOI 后，会话会出现在这里。</Text>
+              </View>
+            }
+            showsVerticalScrollIndicator={false}
+          />
+        )}
+      </View>
     </DeviceShell>
   );
 }
 
+function formatSessionTitle(session: SessionSummary): string {
+  const date = new Date(session.startedAt);
+  if (Number.isNaN(date.getTime())) {
+    return "未知会话";
+  }
+  return date.toLocaleDateString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatTimeRange(session: SessionSummary): string {
+  const startedAt = formatClock(session.startedAt);
+  const endedAt = session.endedAt ? formatClock(session.endedAt) : "现在";
+  return `${startedAt} - ${endedAt}`;
+}
+
+function formatClock(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "--:--";
+  }
+  return date.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 const styles = StyleSheet.create({
-  conversation: {
+  screen: {
     flex: 1,
   },
-  signalHeader: {
-    minHeight: 74,
+  headerBand: {
+    minHeight: 76,
     borderRadius: 24,
     borderWidth: 1,
     borderColor: looiTheme.line,
     backgroundColor: looiTheme.surface,
     paddingHorizontal: 18,
-    paddingVertical: 12,
+    paddingVertical: 14,
+    justifyContent: "center",
     marginBottom: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
   },
-  signalLabel: {
+  headerLabel: {
     color: looiTheme.muted,
     fontSize: 12,
-    marginBottom: 4,
+    fontWeight: "800",
+    marginBottom: 5,
   },
-  signalValue: {
+  headerValue: {
     color: looiTheme.text,
     fontSize: 20,
     fontWeight: "700",
   },
-  signalBars: {
-    height: 40,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
+  errorText: {
+    color: looiTheme.warn,
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 10,
   },
-  signalBar: {
-    width: 5,
-    height: 12,
-    borderRadius: 999,
-    backgroundColor: looiTheme.cyan,
-    opacity: 0.36,
-  },
-  timeline: {
+  loadingState: {
     flex: 1,
-  },
-  timelineContent: {
-    paddingBottom: 14,
-    gap: 12,
-  },
-  timelineEmpty: {
-    flexGrow: 1,
     alignItems: "center",
     justifyContent: "center",
+    gap: 10,
   },
-  emptyConversation: {
-    maxWidth: 420,
+  loadingText: {
+    color: looiTheme.muted,
+    fontSize: 14,
+  },
+  listContent: {
+    paddingBottom: 18,
+    gap: 12,
+  },
+  emptyListContent: {
+    flexGrow: 1,
+  },
+  sessionCard: {
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: looiTheme.line,
+    backgroundColor: looiTheme.surface,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 10,
+  },
+  activeSessionCard: {
+    borderColor: looiTheme.lineActive,
+    backgroundColor: looiTheme.surfaceStrong,
+  },
+  sessionHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  sessionTitleGroup: {
+    flex: 1,
+    gap: 5,
+  },
+  sessionTitleRow: {
+    flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: 8,
+  },
+  sessionTitle: {
+    color: looiTheme.text,
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  activeBadge: {
+    overflow: "hidden",
+    borderRadius: 999,
+    backgroundColor: "rgba(77, 231, 180, 0.14)",
+    color: looiTheme.ok,
+    fontSize: 11,
+    fontWeight: "800",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  sessionMeta: {
+    color: looiTheme.muted,
+    fontSize: 12,
+  },
+  expandMark: {
+    color: looiTheme.cyan,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  summaryText: {
+    color: "rgba(237, 247, 255, 0.76)",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  messageList: {
+    borderTopWidth: 1,
+    borderTopColor: looiTheme.line,
+    paddingTop: 12,
+    gap: 10,
+  },
+  messagesLoading: {
+    minHeight: 72,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  messagesLoadingText: {
+    color: looiTheme.muted,
+    fontSize: 13,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 20,
   },
   emptyTitle: {
     color: looiTheme.text,
-    fontSize: 24,
-    fontWeight: "700",
+    fontSize: 22,
+    fontWeight: "800",
   },
   emptyBody: {
     color: looiTheme.muted,
     fontSize: 15,
     lineHeight: 22,
     textAlign: "center",
-  },
-  voiceDock: {
-    minHeight: 112,
-    alignItems: "center",
-    justifyContent: "center",
-    borderTopWidth: 1,
-    borderTopColor: looiTheme.line,
   },
 });

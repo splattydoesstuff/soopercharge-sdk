@@ -5,6 +5,25 @@ export interface Message {
   content: string;
 }
 
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+  intent?: UserIntent;
+  memories?: MemoryResult[];
+  evidenceUri?: string;
+}
+
+export interface SessionSummary {
+  id: string;
+  startedAt: string;
+  endedAt?: string | null;
+  summary?: string | null;
+  status?: "active" | "closed" | string;
+  messageCount: number;
+}
+
 export interface MemoryResult {
   id: string;
   memory: string;
@@ -49,7 +68,20 @@ export interface LLMService {
     intent: UserIntent,
     context: { facts: MemoryResult[]; transcript: string }
   ): Promise<string>;
+
+  /** Stream a response for the active server-side session */
+  generateResponseStream?(context: {
+    sessionId?: string | null;
+    transcript: string;
+    intent?: UserIntent;
+    facts?: MemoryResult[];
+  }): AsyncGenerator<LLMStreamEvent>;
 }
+
+export type LLMStreamEvent =
+  | { type: "token"; text: string }
+  | { type: "done"; fullText: string; evidenceUri?: string }
+  | { type: "error"; message: string };
 
 /**
  * VisionService — visual understanding via local server

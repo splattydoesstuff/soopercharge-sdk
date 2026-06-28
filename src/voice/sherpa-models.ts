@@ -1,6 +1,6 @@
 import * as FileSystem from "expo-file-system/legacy";
 
-export type SherpaModelKind = "asr" | "kws" | "speaker";
+export type SherpaModelKind = "asr" | "kws" | "speaker" | "vad";
 
 export interface SherpaModelCheck {
   kind: SherpaModelKind;
@@ -17,6 +17,8 @@ const DEFAULT_STT_TOKENS_FILE = "tokens.txt";
 const DEFAULT_KWS_MODEL_DIR = "sherpa-onnx/kws/looi";
 const DEFAULT_SPEAKER_MODEL_DIR = "sherpa-onnx/speaker-id/looi";
 const DEFAULT_SPEAKER_MODEL_FILE = "model.onnx";
+export const DEFAULT_VAD_MODEL_DIR = "sherpa-onnx/vad";
+export const DEFAULT_VAD_MODEL_FILE = "silero_vad.onnx";
 const DEFAULT_KEYWORDS_FILE = "keywords.txt";
 const DEFAULT_KWS_ENCODER_FILE = "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx";
 const DEFAULT_KWS_DECODER_FILE = "decoder-epoch-12-avg-2-chunk-16-left-64.onnx";
@@ -75,6 +77,7 @@ export function formatSherpaModelUserMessage(check: SherpaModelCheck): string {
     asr: "语音识别",
     kws: "唤醒词",
     speaker: "声纹",
+    vad: "语音端点检测",
   };
   return `${labelByKind[check.kind]}模型缺失，请先在设置页下载语音模型。缺失：${check.missingFiles.join(", ")}`;
 }
@@ -83,10 +86,12 @@ export async function checkAllSherpaModelReadiness(): Promise<{
   asr: SherpaModelCheck;
   kws: SherpaModelCheck;
   speaker: SherpaModelCheck;
+  vad: SherpaModelCheck;
 }> {
   const asrModelDir = env("EXPO_PUBLIC_SHERPA_STT_MODEL_DIR", DEFAULT_STT_MODEL_DIR);
   const kwsModelDir = env("EXPO_PUBLIC_SHERPA_KWS_MODEL_DIR", DEFAULT_KWS_MODEL_DIR);
   const speakerModelDir = env("EXPO_PUBLIC_SHERPA_SPEAKER_MODEL_DIR", DEFAULT_SPEAKER_MODEL_DIR);
+  const vadModelDir = env("EXPO_PUBLIC_SHERPA_VAD_MODEL_DIR", DEFAULT_VAD_MODEL_DIR);
 
   return {
     asr: await checkSherpaModelFiles("asr", asrModelDir, [
@@ -102,6 +107,9 @@ export async function checkAllSherpaModelReadiness(): Promise<{
     ]),
     speaker: await checkSherpaModelFiles("speaker", speakerModelDir, [
       env("EXPO_PUBLIC_SHERPA_SPEAKER_MODEL_FILE", DEFAULT_SPEAKER_MODEL_FILE),
+    ]),
+    vad: await checkSherpaModelFiles("vad", vadModelDir, [
+      env("EXPO_PUBLIC_SHERPA_VAD_MODEL_FILE", DEFAULT_VAD_MODEL_FILE),
     ]),
   };
 }

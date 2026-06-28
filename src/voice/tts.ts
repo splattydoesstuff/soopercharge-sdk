@@ -11,6 +11,11 @@ interface TTSOptions {
   speed?: number;
 }
 
+interface SpeakSentencesOptions extends Omit<TTSOptions, "text"> {
+  onSentenceStart?: (sentence: string) => void;
+  onSentenceEnd?: (sentence: string) => void;
+}
+
 /**
  * MiniMax TTS — stream synthesis and playback
  */
@@ -136,6 +141,24 @@ export class TTSService {
       this.isPlaying = false;
       console.error("[TTS] Error:", error);
       throw error;
+    }
+  }
+
+  async speakSentences(
+    sentences: AsyncIterable<string>,
+    options: SpeakSentencesOptions = {}
+  ): Promise<void> {
+    for await (const sentence of sentences) {
+      const text = sentence.trim();
+      if (!text) continue;
+
+      options.onSentenceStart?.(text);
+      await this.speak({
+        text,
+        voiceId: options.voiceId,
+        speed: options.speed,
+      });
+      options.onSentenceEnd?.(text);
     }
   }
 

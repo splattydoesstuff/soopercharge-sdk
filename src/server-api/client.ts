@@ -1,6 +1,9 @@
 import {
+  ChatMessage,
   ContextService,
+  LLMStreamEvent,
   LLMService,
+  SessionSummary,
   VisionService,
   ObserveService,
   Message,
@@ -32,6 +35,90 @@ async function fetchJSON<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   return res.json() as Promise<T>;
+}
+
+function normalizeParams(params?: Record<string, string | number | undefined>): string {
+  const searchParams = new URLSearchParams();
+  Object.entries(params ?? {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      searchParams.set(key, String(value));
+    }
+  });
+  const query = searchParams.toString();
+  return query ? `?${query}` : "";
+}
+
+async function* parseSSE(response: Response): AsyncGenerator<LLMStreamEvent> {
+  if (!response.body) {
+    throw new Error("Streaming response body is not available");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const emitEvent = (chunk: string): LLMStreamEvent | null => {
+    const lines = chunk.split(/\r?\n/);
+    let eventName = "message";
+    const dataLines: string[] = [];
+
+    for (const line of lines) {
+      if (line.startsWith("event:")) {
+        eventName = line.slice("event:".length).trim();
+      } else if (line.startsWith("data:")) {
+        dataLines.push(line.slice("data:".length).trim());
+      }
+    }
+
+    if (dataLines.length === 0) {
+      return null;
+    }
+
+    const data = JSON.parse(dataLines.join("\n")) as Record<string, unknown>;
+    if (eventName === "token") {
+      return { type: "token", text: String(data.text ?? "") };
+    }
+    if (eventName === "done") {
+      return {
+        type: "done",
+        fullText: String(data.fullText ?? ""),
+        evidenceUri: typeof data.evidenceUri === "string" ? data.evidenceUri : undefined,
+      };
+    }
+    if (eventName === "error") {
+      return { type: "error", message: String(data.message ?? "Stream failed") };
+    }
+    return null;
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() ?? "";
+
+      for (const eventChunk of events) {
+        const event = emitEvent(eventChunk);
+        if (event) {
+          yield event;
+        }
+      }
+
+      if (done) {
+        if (buffer.trim()) {
+          const event = emitEvent(buffer);
+          if (event) {
+            yield event;
+          }
+        }
+        return;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 /**
@@ -84,6 +171,58 @@ export const llmService: LLMService = {
       body: JSON.stringify({ intent, ...context }),
     });
     return result.response;
+  },
+
+  async *generateResponseStream(context) {
+    const response = await fetch(`${getServerUrl()}/api/llm/generate-response-stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(context),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Server error ${response.status}: ${text}`);
+    }
+
+    yield* parseSSE(response);
+  },
+};
+
+export const sessionService = {
+  async touch(): Promise<{ sessionId: string; isNew: boolean; previousSummary?: string }> {
+    return fetchJSON("/api/session/touch", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  },
+
+  async addMessage(
+    sessionId: string,
+    message: { role: "user" | "assistant"; content: string; evidenceUri?: string }
+  ): Promise<{ messageId: string }> {
+    return fetchJSON(`/api/session/${encodeURIComponent(sessionId)}/message`, {
+      method: "POST",
+      body: JSON.stringify(message),
+    });
+  },
+
+  async listSessions(params?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<{ sessions: SessionSummary[] }> {
+    return fetchJSON(`/api/session/list${normalizeParams(params)}`);
+  },
+
+  async getMessages(
+    sessionId: string,
+    params?: { limit?: number; offset?: number }
+  ): Promise<{ messages: ChatMessage[] }> {
+    return fetchJSON(
+      `/api/session/${encodeURIComponent(sessionId)}/messages${normalizeParams(params)}`
+    );
   },
 };
 

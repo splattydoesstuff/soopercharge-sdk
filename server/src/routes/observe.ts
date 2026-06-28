@@ -1,13 +1,8 @@
 import { FastifyInstance } from "fastify";
-import OpenAI from "openai";
 import { config } from "../config.js";
+import { chatComplete } from "../infra/llm.js";
 import { saveEvidenceImage } from "./evidence.js";
 import { addMemory, searchMemories } from "./memory.js";
-
-const openai = new OpenAI({
-  baseURL: config.llm.baseUrl,
-  apiKey: config.llm.apiKey,
-});
 
 export interface ObserveDependencies {
   describeImage: (imageBase64: string, transcript: string) => Promise<string>;
@@ -108,9 +103,8 @@ export async function generateConfirmation(
   }
 
   try {
-    const response = await openai.chat.completions.create({
-      model: config.llm.model,
-      messages: [
+    return await chatComplete(
+      [
         {
           role: "system",
           content: "你是 LOOI，一个记忆助手。用户正在让你记住眼前物品的位置。请基于视觉描述简短确认，不超过 30 字，不要编造未出现的信息。",
@@ -120,11 +114,8 @@ export async function generateConfirmation(
           content: `用户原话：${transcript}\n视觉描述：${description}`,
         },
       ],
-      temperature: 0.4,
-      max_tokens: 80,
-    });
-
-    return response.choices[0]?.message?.content || "好的，我记住了，也保存了证据图片。";
+      { temperature: 0.4, maxTokens: 80 }
+    );
   } catch {
     return "好的，我记住了，也保存了证据图片。";
   }

@@ -2,6 +2,8 @@ import SherpaOnnx from "@siteed/sherpa-onnx.rn";
 import * as FileSystem from "expo-file-system/legacy";
 import {
   checkAllSherpaModelReadiness,
+  DEFAULT_VAD_MODEL_DIR,
+  DEFAULT_VAD_MODEL_FILE,
   resolveSherpaModelDir,
   type SherpaModelCheck,
 } from "./sherpa-models";
@@ -13,6 +15,7 @@ type DownloadStage =
   | "kws-extract"
   | "kws-copy"
   | "speaker"
+  | "vad"
   | "verifying";
 
 export type SherpaModelDownloadProgress = {
@@ -34,6 +37,8 @@ const KWS_ARCHIVE_URL =
   "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile.tar.bz2";
 const SPEAKER_MODEL_URL =
   "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx";
+const VAD_MODEL_URL =
+  "https://github.com/k2-fsa/sherpa-onnx/releases/download/vad-models/silero_vad.onnx";
 const SENSEVOICE_BASE_URL =
   "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main";
 const KWS_KEYWORDS = "h ēi m ó g ē @HEY_MOGE\n";
@@ -208,6 +213,24 @@ async function downloadSpeaker(
   );
 }
 
+async function downloadVad(
+  missing: SherpaModelCheck,
+  onProgress?: ProgressCallback
+): Promise<void> {
+  if (missing.ready) return;
+  const modelDir = missing.absoluteModelDir || resolveSherpaModelDir(DEFAULT_VAD_MODEL_DIR);
+  await ensureDir(modelDir);
+  await downloadFile(
+    VAD_MODEL_URL,
+    `${modelDir}${DEFAULT_VAD_MODEL_FILE}`,
+    onProgress,
+    "vad",
+    "下载 VAD 模型",
+    0,
+    1
+  );
+}
+
 export async function downloadMissingSherpaModels(onProgress?: ProgressCallback) {
   emit(onProgress, "checking", "检查缺失模型", 0);
   const before = await checkAllSherpaModelReadiness();
@@ -216,12 +239,13 @@ export async function downloadMissingSherpaModels(onProgress?: ProgressCallback)
   await downloadAsr(before.asr, onProgress);
   await downloadKws(before.kws, onProgress);
   await downloadSpeaker(before.speaker, onProgress);
+  await downloadVad(before.vad, onProgress);
 
   emit(onProgress, "verifying", "校验模型文件", 0);
   const after = await checkAllSherpaModelReadiness();
   emit(onProgress, "verifying", "校验模型文件", 1);
 
-  const stillMissing = [after.asr, after.kws, after.speaker].filter((item) => !item.ready);
+  const stillMissing = [after.asr, after.kws, after.speaker, after.vad].filter((item) => !item.ready);
   if (stillMissing.length > 0) {
     throw new Error(
       stillMissing

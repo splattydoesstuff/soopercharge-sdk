@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import Fastify from "fastify";
 import {
   buildGroundedSearchResponse,
   buildSystemPrompt,
+  createLlmRoutes,
   getDefaultResponse,
   ruleBasedClassify,
 } from "../src/routes/llm.js";
@@ -21,6 +23,13 @@ test("search prompt with no facts requires honest no-memory response", () => {
   assert.match(prompt, /我不记得这个/);
   assert.match(prompt, /不要编造信息/);
   assert.equal(getDefaultResponse("search"), "抱歉，我不记得这个信息。");
+});
+
+test("system prompt can include previous session summary", () => {
+  const prompt = buildSystemPrompt("chat", [], "用户刚刚提到钥匙在蓝色抽屉里");
+
+  assert.match(prompt, /上一段对话摘要：用户刚刚提到钥匙在蓝色抽屉里/);
+  assert.match(prompt, /这是一般对话/);
 });
 
 test("search prompt includes only provided facts", () => {
@@ -54,4 +63,109 @@ test("search response is grounded in the top retrieved fact", () => {
 
 test("search response without facts uses no-memory response", () => {
   assert.equal(buildGroundedSearchResponse([]), "抱歉，我不记得这个信息。");
+});
+
+test("generate-response-stream emits token and done SSE events with session history", async () => {
+  const seenMessages: unknown[] = [];
+  const server = Fastify({ logger: false });
+  await server.register(
+    createLlmRoutes({
+      chatComplete: async () => "unused",
+      chatStream: (messages) => {
+        seenMessages.push(messages);
+        return (async function* () {
+          yield {
+            type: "text_delta",
+            contentIndex: 0,
+            delta: "你",
+            partial: {} as any,
+          };
+          yield {
+            type: "text_delta",
+            contentIndex: 0,
+            delta: "好",
+            partial: {} as any,
+          };
+          yield {
+            type: "done",
+            reason: "stop",
+            message: {} as any,
+          };
+        })() as any;
+      },
+      sessionService: {
+        async touch() {
+          return { sessionId: "sess_test", isNew: false };
+        },
+        async addMessage() {
+          return { messageId: "msg_test" };
+        },
+        async listSessions() {
+          return { sessions: [] };
+        },
+        async getMessages() {
+          return { messages: [] };
+        },
+        async getRecentMessages(sessionId, maxMessages) {
+          assert.equal(sessionId, "sess_test");
+          assert.equal(maxMessages, 20);
+          return [
+            {
+              id: "msg_1",
+              sessionId,
+              role: "user",
+              content: "之前的问题",
+              evidenceUri: null,
+              createdAt: "2026-06-28T00:00:00.000Z",
+            },
+            {
+              id: "msg_2",
+              sessionId,
+              role: "assistant",
+              content: "之前的回答",
+              evidenceUri: null,
+              createdAt: "2026-06-28T00:00:01.000Z",
+            },
+          ];
+        },
+      },
+    }),
+    { prefix: "/api/llm" }
+  );
+
+  try {
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/llm/generate-response-stream",
+      payload: {
+        transcript: "现在的问题",
+        sessionId: "sess_test",
+        previousSummary: "上一段摘要",
+        facts: [{ memory: "钥匙在抽屉里", metadata: { evidenceUri: "http://example.test/key.png" } }],
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.match(response.headers["content-type"] as string, /text\/event-stream/);
+    assert.match(response.body, /event: token\ndata: \{"text":"你"\}/);
+    assert.match(response.body, /event: token\ndata: \{"text":"好"\}/);
+    assert.match(
+      response.body,
+      /event: done\ndata: \{"fullText":"你好","evidenceUri":"http:\/\/example.test\/key.png"\}/
+    );
+    assert.deepEqual(seenMessages, [
+      [
+        {
+          role: "system",
+          content:
+            "你是 LOOI，一个记忆助手。你帮助主人记录和回忆事情。说话简短、自然、温暖。用中文回答。\n上一段对话摘要：上一段摘要\n这是一般对话。请简短、自然地回复。",
+        },
+        { role: "user", content: "之前的问题" },
+        { role: "assistant", content: "之前的回答" },
+        { role: "user", content: "现在的问题" },
+      ],
+    ]);
+  } finally {
+    await server.close();
+  }
 });
