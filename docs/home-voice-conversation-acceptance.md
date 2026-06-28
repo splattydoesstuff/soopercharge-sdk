@@ -16,6 +16,7 @@ Updated: 2026-06-28 14:10 CST
 - Closed session summaries are written to `sessions.summary` and Mem0 with `category: "session_summary"`.
 - Conversation tab is a session history viewer.
 - iOS native build succeeds, including `@siteed/sherpa-onnx.rn` and `@siteed/audio-studio` native targets.
+- Settings now shows VAD model readiness and provides a device-side VAD diagnostic using the bundled wakeword WAV plus tail silence.
 
 ## Verification Commands Run
 
@@ -25,6 +26,7 @@ Updated: 2026-06-28 14:10 CST
 - `pnpm --dir server test`
 - `npx -y react-doctor@latest . --verbose --diff`
 - `pnpm exec expo run:ios --device generic --no-bundler --output ./output/ios-build-smoke`
+- Re-run iOS build-only smoke after VAD diagnostic additions: `0 error(s), and 0 warning(s)`.
 
 ## Runtime Smoke Results
 
@@ -44,3 +46,7 @@ These cannot be fully proven from static tests or HTTP smoke:
 - First TTS playback within 3s of first token on device.
 - Perceived subtitle/TTS sync during actual audio playback.
 - Long-run resource release behavior for VAD/audio-studio/recording/SSE after repeated real conversations.
+
+## Remaining Static Review Notes
+
+- React Doctor still reports pre-existing `SettingsScreen` size and sequential-await warnings in existing recording flows. The VAD diagnostic addition compiles and the iOS build passes; broad settings refactor is out of scope for this feature acceptance.

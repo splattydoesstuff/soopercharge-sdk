@@ -1,6 +1,6 @@
 # Home Voice Conversation Progress
 
-Updated: 2026-06-28 14:05:00 CST
+Updated: 2026-06-28 14:24:00 CST
 
 - [x] Inspect `.claude/plans/home-voice-conversation.md` and current worktree.
 - [x] Split execution ownership:
@@ -12,6 +12,7 @@ Updated: 2026-06-28 14:05:00 CST
   - [x] Route live PCM samples to VAD during listening.
   - [x] Trigger `finishListening()` from VAD speech end and safety timeout.
   - [x] Verify VAD API shape against installed `@siteed/sherpa-onnx.rn` package and use its public `VAD` service.
+  - [x] Add Settings VAD model status and diagnostic smoke entry.
 - [x] Phase 2: pi-ai SSE LLM server migration
   - [x] Inspect current server LLM routes and pi-ai reference implementation.
   - [x] Add `@earendil-works/pi-ai` and remove direct `openai` dependency.
@@ -43,7 +44,9 @@ Updated: 2026-06-28 14:05:00 CST
   - [x] Run app TypeScript/test checks with pnpm.
   - [x] Run server build/tests with pnpm.
   - [x] Run React Doctor on changed React files.
+  - [x] Re-run React Doctor after VAD diagnostic changes; remaining warnings are existing SettingsScreen size/sequential-await debt, not blocking this feature.
   - [x] Runtime-smoke server `/health`, `/api/session/touch`, `/api/session/list`, `/api/session/:id/messages`, and `/api/llm/generate-response-stream`.
   - [x] HTTP smoke measured SSE first token at ~1714ms and confirmed touch reuses the same session within 5 minutes.
   - [x] iOS simulator build-only smoke with Expo (`output/ios-build-smoke/superlooiapp.app`).
+  - [x] Re-run iOS build-only smoke after VAD diagnostic changes; build succeeded with 0 errors and 0 warnings.
   - [x] Audit against all acceptance criteria.

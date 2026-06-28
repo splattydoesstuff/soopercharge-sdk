@@ -38,12 +38,18 @@ type SherpaModelStatus = {
   asr: SherpaModelCheck;
   kws: SherpaModelCheck;
   speaker: SherpaModelCheck;
+  vad: SherpaModelCheck;
 };
 
 type Preferences = ReturnType<typeof useUserStore.getState>["preferences"];
 type KwsDiagnosticResult = {
   detected?: boolean;
   keyword?: string;
+};
+
+type VadDiagnosticResult = {
+  isSpeechDetected: boolean;
+  segments?: Array<{ startTime?: number; endTime?: number }>;
 };
 
 async function getVoiceServices() {
@@ -87,6 +93,11 @@ type SettingsUiState = {
     result: string | null;
     error: string | null;
   };
+  vadSmoke: {
+    running: boolean;
+    result: string | null;
+    error: string | null;
+  };
   visualSmoke: {
     running: boolean;
     result: string | null;
@@ -122,6 +133,9 @@ type SettingsUiAction =
   | { type: "kws-smoke/start-running" }
   | { type: "kws-smoke/succeeded"; result: string }
   | { type: "kws-smoke/failed"; error: string }
+  | { type: "vad-smoke/start-running" }
+  | { type: "vad-smoke/succeeded"; result: string }
+  | { type: "vad-smoke/failed"; error: string }
   | { type: "visual-smoke/start-running" }
   | { type: "visual-smoke/succeeded"; result: string }
   | { type: "visual-smoke/failed"; error: string }
@@ -155,6 +169,11 @@ const initialSettingsUiState: SettingsUiState = {
     error: null,
   },
   kwsSmoke: {
+    running: false,
+    result: null,
+    error: null,
+  },
+  vadSmoke: {
     running: false,
     result: null,
     error: null,
@@ -257,6 +276,21 @@ function settingsUiReducer(
       return {
         ...state,
         kwsSmoke: { running: false, result: null, error: action.error },
+      };
+    case "vad-smoke/start-running":
+      return {
+        ...state,
+        vadSmoke: { running: true, result: null, error: null },
+      };
+    case "vad-smoke/succeeded":
+      return {
+        ...state,
+        vadSmoke: { running: false, result: action.result, error: null },
+      };
+    case "vad-smoke/failed":
+      return {
+        ...state,
+        vadSmoke: { running: false, result: null, error: action.error },
       };
     case "visual-smoke/start-running":
       return {
@@ -387,6 +421,11 @@ export default function SettingsScreen() {
     result: kwsSmokeResult,
     error: kwsSmokeError,
   } = uiState.kwsSmoke;
+  const {
+    running: vadSmokeRunning,
+    result: vadSmokeResult,
+    error: vadSmokeError,
+  } = uiState.vadSmoke;
   const {
     running: visualSmokeRunning,
     result: visualSmokeResult,
@@ -707,6 +746,39 @@ export default function SettingsScreen() {
     }
   }, [kwsSmokeRunning, preferences.wakeWordEnabled]);
 
+  const runVadSmoke = useCallback(async () => {
+    if (vadSmokeRunning) return;
+
+    dispatchUi({ type: "vad-smoke/start-running" });
+
+    try {
+      const [{ vadService }, { samples, sampleRate }] = await Promise.all([
+        import("@/src/voice/vad-service"),
+        loadPcm16WavAssetSamples(KWS_DIAGNOSTIC_AUDIO),
+      ]);
+      await vadService.start();
+      const result = await runVadDiagnosticSamples(samples, sampleRate, (chunk) =>
+        vadService.acceptSamples(chunk, sampleRate)
+      );
+      const segment = result.segments[0];
+      const summary = [
+        `speech=${result.hadSpeech ? "yes" : "no"}`,
+        `segments=${result.segments.length}`,
+        segment ? `first=${segment.startTime?.toFixed(2)}-${segment.endTime?.toFixed(2)}s` : null,
+        `samples=${samples.length}`,
+        `sampleRate=${sampleRate}`,
+      ].filter(Boolean).join(" | ");
+      console.log(`[Settings] VAD smoke succeeded: ${summary}`);
+      dispatchUi({ type: "vad-smoke/succeeded", result: summary });
+    } catch (error) {
+      console.error("[Settings] VAD smoke failed:", error);
+      dispatchUi({ type: "vad-smoke/failed", error: "VAD 诊断失败" });
+    } finally {
+      const { vadService } = await import("@/src/voice/vad-service");
+      await vadService.stop().catch(() => undefined);
+    }
+  }, [vadSmokeRunning]);
+
   const runCalendarSmoke = useCallback(async () => {
     if (calendarSmokeRunning) return;
 
@@ -827,9 +899,13 @@ export default function SettingsScreen() {
           kwsSmokeRunning={kwsSmokeRunning}
           kwsSmokeResult={kwsSmokeResult}
           kwsSmokeError={kwsSmokeError}
+          vadSmokeRunning={vadSmokeRunning}
+          vadSmokeResult={vadSmokeResult}
+          vadSmokeError={vadSmokeError}
           checkSherpaModels={checkSherpaModels}
           downloadSherpaModels={downloadSherpaModels}
           runKwsSmoke={runKwsSmoke}
+          runVadSmoke={runVadSmoke}
         />
       </View>
 
@@ -1020,9 +1096,13 @@ function VoiceModelsSection({
   kwsSmokeRunning,
   kwsSmokeResult,
   kwsSmokeError,
+  vadSmokeRunning,
+  vadSmokeResult,
+  vadSmokeError,
   checkSherpaModels,
   downloadSherpaModels,
   runKwsSmoke,
+  runVadSmoke,
 }: {
   isDark: boolean;
   modelStatus: SherpaModelStatus | null;
@@ -1033,13 +1113,21 @@ function VoiceModelsSection({
   kwsSmokeRunning: boolean;
   kwsSmokeResult: string | null;
   kwsSmokeError: string | null;
+  vadSmokeRunning: boolean;
+  vadSmokeResult: string | null;
+  vadSmokeError: string | null;
   checkSherpaModels: () => void;
   downloadSherpaModels: () => void;
   runKwsSmoke: () => void;
+  runVadSmoke: () => void;
 }) {
   const hasMissingModels = modelStatus
-    ? !modelStatus.asr.ready || !modelStatus.kws.ready || !modelStatus.speaker.ready
+    ? !modelStatus.asr.ready ||
+      !modelStatus.kws.ready ||
+      !modelStatus.speaker.ready ||
+      !modelStatus.vad.ready
     : false;
+  const vadUnavailable = !modelStatus?.vad.ready;
   const progressPercent = downloadProgress
     ? Math.round(downloadProgress.progress * 100)
     : 0;
@@ -1054,6 +1142,7 @@ function VoiceModelsSection({
             <ModelStatusRow label="SenseVoice" status={modelStatus.asr} isDark={_isDark} />
             <ModelStatusRow label="唤醒词 KWS" status={modelStatus.kws} isDark={_isDark} />
             <ModelStatusRow label="声纹 Speaker" status={modelStatus.speaker} isDark={_isDark} />
+            <ModelStatusRow label="端点检测 VAD" status={modelStatus.vad} isDark={_isDark} />
           </>
         ) : (
           <Text style={styles.value}>{checkingModels ? "检查中..." : "未检查"}</Text>
@@ -1090,9 +1179,12 @@ function VoiceModelsSection({
           </Pressable>
         ) : null}
         <Pressable
-          style={[styles.checkButton, (kwsSmokeRunning || hasMissingModels) && styles.disabledButton]}
+          style={[
+            styles.checkButton,
+            (kwsSmokeRunning || !modelStatus?.kws.ready) && styles.disabledButton,
+          ]}
           onPress={runKwsSmoke}
-          disabled={kwsSmokeRunning || hasMissingModels}
+          disabled={kwsSmokeRunning || !modelStatus?.kws.ready}
         >
           <Text style={styles.checkButtonText}>
             {kwsSmokeRunning ? "诊断中..." : "测试唤醒词音频"}
@@ -1100,6 +1192,17 @@ function VoiceModelsSection({
         </Pressable>
         {kwsSmokeResult ? <Text style={styles.smokeResultText}>{kwsSmokeResult}</Text> : null}
         {kwsSmokeError ? <Text style={styles.errorText}>{kwsSmokeError}</Text> : null}
+        <Pressable
+          style={[styles.checkButton, (vadSmokeRunning || vadUnavailable) && styles.disabledButton]}
+          onPress={runVadSmoke}
+          disabled={vadSmokeRunning || vadUnavailable}
+        >
+          <Text style={styles.checkButtonText}>
+            {vadSmokeRunning ? "诊断中..." : "测试 VAD 端点检测"}
+          </Text>
+        </Pressable>
+        {vadSmokeResult ? <Text style={styles.smokeResultText}>{vadSmokeResult}</Text> : null}
+        {vadSmokeError ? <Text style={styles.errorText}>{vadSmokeError}</Text> : null}
       </View>
     </View>
   );
@@ -1249,6 +1352,36 @@ async function runKwsDiagnosticSamples(
     acceptSamples,
     (result) => Boolean(result.detected)
   );
+}
+
+async function runVadDiagnosticSamples(
+  samples: number[],
+  sampleRate: number,
+  acceptSamples: (chunk: number[]) => Promise<VadDiagnosticResult>
+) {
+  const paddedSamples = samples.concat(new Array(KWS_DIAGNOSTIC_TAIL_SILENCE_SAMPLES).fill(0));
+  const segments: Array<{ startTime?: number; endTime?: number }> = [];
+  let hadSpeech = false;
+
+  await feedSamplesSequentially(
+    paddedSamples,
+    KWS_DIAGNOSTIC_CHUNK_SIZE,
+    async (chunk) => {
+      const result = await acceptSamples(chunk);
+      hadSpeech ||= result.isSpeechDetected;
+      if (result.segments?.length) {
+        segments.push(...result.segments);
+      }
+      return { isSpeechDetected: result.isSpeechDetected, segmentCount: segments.length };
+    },
+    (result) => result.segmentCount > 0
+  );
+
+  if (!hadSpeech && segments.length === 0) {
+    throw new Error("VAD did not detect speech in diagnostic audio");
+  }
+
+  return { hadSpeech, segments };
 }
 
 async function getAudioFileSummary(audioUri: string): Promise<string> {
