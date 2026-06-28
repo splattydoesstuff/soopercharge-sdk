@@ -105,6 +105,8 @@ These cannot be fully proven from static tests or HTTP smoke:
 
 Use the live trace and runner to accept or reject these manually. A passing real-device run should include a single `[Acceptance] live voice ...` sequence with `wakeword`, `recording-started`, `vad-speech`, `vad-end`, `recording-stopped`, `speaker-verified isOwner=true`, `stt transcriptLength>0`, `first-token`, `first-tts`, `assistant`, and `cleanup isListening=false isProcessing=false`. The cleanup summary includes `vadEndAfterSpeechMs`, `firstTokenAfterSttMs`, and `firstTtsAfterTokenMs` for latency review. For repeated resource acceptance, set `EXPO_PUBLIC_LOOI_LIVE_VOICE_ACCEPTANCE_REPEAT=3` and confirm all three trace ids finish with cleanup.
 
+Follow `docs/home-voice-conversation-device-acceptance.md` when a physical iOS device is connected. Current local device discovery only shows the Mac and simulators, so the physical-device checks are not yet runnable in this environment.
+
 ## Remaining Static Review Notes
 
 - React Doctor still reports pre-existing `SettingsScreen` size and sequential-await warnings in existing recording flows. The VAD diagnostic addition compiles and the iOS build passes; broad settings refactor is out of scope for this feature acceptance.
