@@ -629,10 +629,23 @@ export class VoicePerceiver extends BasePerceiver {
         const samples = this.vadQueuedSamples;
         this.vadQueuedSamples = null;
         const result = await vadService.acceptSamples(samples, sampleRate);
-        if (result.isSpeechDetected || (result.segments?.length ?? 0) > 0) {
+        const completedSegmentCount = result.segments?.length ?? 0;
+        if (completedSegmentCount > 0 && sttService.recording_active) {
           if (!this.vadHadSpeech) {
             voiceAcceptanceTrace.mark("vad-speech", {
-              segments: result.segments?.length ?? 0,
+              segments: completedSegmentCount,
+            });
+          }
+          this.vadHadSpeech = true;
+          console.log("[VoicePerceiver] VAD detected speech end");
+          voiceAcceptanceTrace.mark("vad-end");
+          this.finishListening();
+          break;
+        }
+        if (result.isSpeechDetected) {
+          if (!this.vadHadSpeech) {
+            voiceAcceptanceTrace.mark("vad-speech", {
+              segments: completedSegmentCount,
             });
           }
           this.vadHadSpeech = true;

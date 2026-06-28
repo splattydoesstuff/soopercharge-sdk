@@ -1,6 +1,6 @@
 # Home Voice Conversation Progress
 
-Updated: 2026-06-28 12:47:21 CST
+Updated: 2026-06-28 12:58:43 CST
 
 - [x] Inspect `.claude/plans/home-voice-conversation.md` and current worktree.
 - [x] Split execution ownership:
@@ -73,5 +73,6 @@ Updated: 2026-06-28 12:47:21 CST
   - [x] Attempt combined enrollment + live runner; found and fixed a runner sequencing race so live acceptance now waits for boot owner enrollment to finish before triggering.
   - [x] Re-run combined enrollment + live runner; full session -> speaker pass -> STT -> SSE -> TTS -> assistant -> cleanup path completed, but VAD still used safety timeout and ASR heard only punctuation because simulator input stayed very low volume.
   - [x] Re-run live runner with higher macOS output/input volume and confirmed adequate simulator audio can trigger `vad-speech`; this run still missed owner enrollment audio, so speaker verification failed and VAD did not emit `vad-end` before the safety timeout.
-  - [ ] Re-run combined enrollment + live runner with adequate audio during both enrollment and live recording.
-  - [ ] Run live microphone wakeword conversation and long-run repeated resource acceptance on iOS simulator/device.
+  - [x] Treat Sherpa VAD completed `segments` as speech-end events so the real live pipeline does not wait for the safety timeout after VAD has emitted a finished segment.
+  - [x] Re-run combined enrollment + live runner with adequate audio during both enrollment and live recording; single trace completed `vad-speech` -> `vad-end` -> speaker pass -> meaningful STT -> SSE -> TTS -> assistant -> cleanup.
+  - [ ] Run long-run repeated resource acceptance on a real iOS device.
