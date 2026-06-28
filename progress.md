@@ -1,6 +1,6 @@
 # Home Voice Conversation Progress
 
-Updated: 2026-06-28 12:39:04 CST
+Updated: 2026-06-28 12:47:21 CST
 
 - [x] Inspect `.claude/plans/home-voice-conversation.md` and current worktree.
 - [x] Split execution ownership:
@@ -72,4 +72,6 @@ Updated: 2026-06-28 12:39:04 CST
   - [x] Add opt-in boot owner enrollment helper via `EXPO_PUBLIC_LOOI_ENROLL_OWNER_ON_BOOT=1` to remove speaker-mismatch as a variable during live acceptance runs.
   - [x] Attempt combined enrollment + live runner; found and fixed a runner sequencing race so live acceptance now waits for boot owner enrollment to finish before triggering.
   - [x] Re-run combined enrollment + live runner; full session -> speaker pass -> STT -> SSE -> TTS -> assistant -> cleanup path completed, but VAD still used safety timeout and ASR heard only punctuation because simulator input stayed very low volume.
+  - [x] Re-run live runner with higher macOS output/input volume and confirmed adequate simulator audio can trigger `vad-speech`; this run still missed owner enrollment audio, so speaker verification failed and VAD did not emit `vad-end` before the safety timeout.
+  - [ ] Re-run combined enrollment + live runner with adequate audio during both enrollment and live recording.
   - [ ] Run live microphone wakeword conversation and long-run repeated resource acceptance on iOS simulator/device.

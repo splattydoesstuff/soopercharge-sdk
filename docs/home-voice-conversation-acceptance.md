@@ -1,6 +1,6 @@
 # Home Voice Conversation Acceptance
 
-Updated: 2026-06-28 12:39 CST
+Updated: 2026-06-28 12:47 CST
 
 ## Proven By Current Evidence
 
@@ -71,6 +71,7 @@ Updated: 2026-06-28 12:39 CST
 - During the repeated simulator smoke, server logs showed each iteration completing session touch, user message append, intent classification, `/api/llm/generate-response-stream`, and assistant message append. No server-side background summary or Mem0 native-module error appeared.
 - iOS simulator live voice acceptance runner attempt proved the real recording/session path starts from boot: it logged `wakeword`, `session`, `recording-started`, `safety-timeout`, `finish-requested`, `recording-stopped`, `speaker-verified isOwner=false`, and `cleanup isListening=false isProcessing=false`. The recorded WAV was 16 kHz mono, 15.06s, but very low level (`mean_volume=-58.8 dB`, `max_volume=-48.2 dB`) when using macOS `say` playback as the external audio source. No `vad-speech`, `stt`, `first-token`, or `first-tts` events were produced.
 - Combined boot owner-enrollment + live voice runner passed the live session path through speaker verification, STT, SSE, TTS start, assistant persistence, and cleanup: trace logged `speaker-verified isOwner=true`, `stt transcriptLength=1`, `first-token`, `first-tts`, `stream-done`, `assistant`, and `cleanup isListening=false isProcessing=false`, with `firstTokenAfterSttMs=146` and `firstTtsAfterTokenMs=1774`. Server logs confirmed session touch, user message append, intent classify, SSE, and assistant message append. This still did not prove natural-speech VAD or ASR quality: no `vad-speech`/`vad-end` event appeared, the run finished by safety timeout, and ASR only returned `。`. The live recording was still very low level (`mean_volume=-62.6 dB`, `max_volume=-50.1 dB`); the enrollment recording was also low (`mean_volume=-54.7 dB`, `max_volume=-35.5 dB`).
+- A later high-volume simulator live runner attempt proved that adequate host audio can trigger VAD speech detection in the real recording path. With macOS output/input temporarily raised to 90, the live trace logged `vad-speech` at `elapsed=12283ms`; the live WAV measured `mean_volume=-16.1 dB`, `max_volume=0.0 dB`. This run is not final acceptance because the enrollment window was missed (`mean_volume=-52.3 dB`, `max_volume=-40.8 dB`), speaker verification failed, and VAD still did not emit `vad-end` before the safety timeout.
 
 ## Needs Device-Level Acceptance
 
@@ -88,4 +89,4 @@ Use the live trace and runner to accept or reject these manually. A passing real
 - React Doctor still reports pre-existing `SettingsScreen` size and sequential-await warnings in existing recording flows. The VAD diagnostic addition compiles and the iOS build passes; broad settings refactor is out of scope for this feature acceptance.
 - iOS simulator repeated conversation smoke still logs simulator CoreAudio noise and `[TTS] Playback timeout after 8000ms`. The diagnostic proves TTS starts and that cleanup allows subsequent iterations to complete, but real-device playback completion still needs manual confirmation.
 - The first live simulator runner attempt was blocked by insufficient microphone input level and owner speaker mismatch from external `say` audio. It is valid evidence for boot-triggered live recording/session/cleanup, but not sufficient for final VAD/STT/SSE/TTS acceptance.
-- The combined enrollment + live runner reduced the remaining unknown to real microphone input quality for VAD/ASR. The app path can complete after speaker verification, but simulator audio input is too quiet for final natural-speech VAD/ASR acceptance.
+- The combined enrollment + live runner reduced the remaining unknown to real microphone input quality for VAD/ASR. The app path can complete after speaker verification, and high-volume simulator audio can produce `vad-speech`, but final acceptance still needs a run where enrollment and live recording both receive adequate matching speech and VAD emits `vad-end`.
