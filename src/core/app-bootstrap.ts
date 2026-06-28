@@ -12,6 +12,7 @@ import {
 
 let bootstrapped = false;
 let paused = false;
+let ownerEnrollmentPromise: Promise<void> | null = null;
 
 /**
  * Initialize all perceivers and wire observation events.
@@ -144,7 +145,7 @@ function runOptInLiveVoiceAcceptanceOnBoot(): void {
 function runOptInOwnerEnrollmentOnBoot(): void {
   if (process.env.EXPO_PUBLIC_LOOI_ENROLL_OWNER_ON_BOOT !== "1") return;
 
-  void runOwnerEnrollmentSequence().catch((error) => {
+  ownerEnrollmentPromise = runOwnerEnrollmentSequence().catch((error) => {
     console.error("[Diagnostics] Owner enrollment failed:", error);
   });
 }
@@ -179,6 +180,7 @@ async function runOwnerEnrollmentSequence(): Promise<void> {
 }
 
 async function runLiveVoiceAcceptanceSequence(): Promise<void> {
+  await ownerEnrollmentPromise;
   const repeat = getLiveVoiceAcceptanceRepeatCount();
   const delayMs = getLiveVoiceAcceptanceStartDelayMs();
 

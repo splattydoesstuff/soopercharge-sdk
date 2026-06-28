@@ -1,6 +1,6 @@
 # Home Voice Conversation Progress
 
-Updated: 2026-06-28 12:30:50 CST
+Updated: 2026-06-28 12:34:41 CST
 
 - [x] Inspect `.claude/plans/home-voice-conversation.md` and current worktree.
 - [x] Split execution ownership:
@@ -70,4 +70,5 @@ Updated: 2026-06-28 12:30:50 CST
   - [x] Add opt-in boot live voice acceptance runner via `EXPO_PUBLIC_LOOI_RUN_LIVE_VOICE_ACCEPTANCE_ON_BOOT=1` to trigger the real voice pipeline without tapping UI controls.
   - [x] Attempt one iOS simulator live voice run with the boot runner and macOS `say` audio; recording/session path worked, but VAD did not detect speech and speaker verification rejected the low-volume external audio.
   - [x] Add opt-in boot owner enrollment helper via `EXPO_PUBLIC_LOOI_ENROLL_OWNER_ON_BOOT=1` to remove speaker-mismatch as a variable during live acceptance runs.
+  - [x] Attempt combined enrollment + live runner; found and fixed a runner sequencing race so live acceptance now waits for boot owner enrollment to finish before triggering.
   - [ ] Run live microphone wakeword conversation and long-run repeated resource acceptance on iOS simulator/device.
