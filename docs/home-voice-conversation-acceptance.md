@@ -1,6 +1,6 @@
 # Home Voice Conversation Acceptance
 
-Updated: 2026-06-28 12:21 CST
+Updated: 2026-06-28 12:27 CST
 
 ## Proven By Current Evidence
 
@@ -67,12 +67,13 @@ Updated: 2026-06-28 12:21 CST
   - `2/3`: `transcript="黑魔哥。" | tokens=10 | firstTokenAfterAsrMs=43 | firstTtsAfterTokenMs=1583 | totalMs=19769`
   - `3/3`: `transcript="黑魔哥。" | tokens=13 | firstTokenAfterAsrMs=19 | firstTtsAfterTokenMs=2033 | totalMs=12002`
 - During the repeated simulator smoke, server logs showed each iteration completing session touch, user message append, intent classification, `/api/llm/generate-response-stream`, and assistant message append. No server-side background summary or Mem0 native-module error appeared.
+- iOS simulator live voice acceptance runner attempt proved the real recording/session path starts from boot: it logged `wakeword`, `session`, `recording-started`, `safety-timeout`, `finish-requested`, `recording-stopped`, `speaker-verified isOwner=false`, and `cleanup isListening=false isProcessing=false`. The recorded WAV was 16 kHz mono, 15.06s, but very low level (`mean_volume=-58.8 dB`, `max_volume=-48.2 dB`) when using macOS `say` playback as the external audio source. No `vad-speech`, `stt`, `first-token`, or `first-tts` events were produced.
 
 ## Needs Device-Level Acceptance
 
 These cannot be fully proven from static tests or HTTP smoke:
 
-- Real microphone wakeword -> VAD -> ASR flow on iOS simulator/device.
+- Real microphone wakeword/button trigger -> VAD -> ASR flow on a real iOS device, or on a simulator with verified microphone input volume.
 - VAD accuracy for natural speech: no mid-sentence cutoff and no >2s wait after a clear stop.
 - Perceived subtitle/TTS sync during actual audio playback.
 - Long-run resource release behavior for VAD/audio-studio/recording/SSE after repeated real microphone conversations on device.
@@ -83,3 +84,4 @@ Use the live trace and runner to accept or reject these manually. A passing real
 
 - React Doctor still reports pre-existing `SettingsScreen` size and sequential-await warnings in existing recording flows. The VAD diagnostic addition compiles and the iOS build passes; broad settings refactor is out of scope for this feature acceptance.
 - iOS simulator repeated conversation smoke still logs simulator CoreAudio noise and `[TTS] Playback timeout after 8000ms`. The diagnostic proves TTS starts and that cleanup allows subsequent iterations to complete, but real-device playback completion still needs manual confirmation.
+- The first live simulator runner attempt was blocked by insufficient microphone input level and owner speaker mismatch from external `say` audio. It is valid evidence for boot-triggered live recording/session/cleanup, but not sufficient for final VAD/STT/SSE/TTS acceptance.
