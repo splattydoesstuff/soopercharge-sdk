@@ -16,7 +16,7 @@ import { cameraPerceiver } from "./camera-perceiver";
 
 const RECORDING_START_TIMEOUT_MS = 5000;
 const MAX_LISTENING_DURATION_MS = 15_000;
-const SENTENCE_BREAK_RE = /[。！？!?，,\n、]/;
+const SENTENCE_BREAK_RE = /[。！？!?\n、]/;
 const MAX_STREAMING_SENTENCE_LENGTH = 20;
 
 type GenerateResponseResult = {

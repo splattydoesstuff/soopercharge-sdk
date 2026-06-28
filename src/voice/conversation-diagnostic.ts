@@ -223,7 +223,7 @@ class DiagnosticSentenceQueue implements AsyncIterable<string> {
   }
 }
 
-const SENTENCE_BREAK_RE = /[。！？!?，,\n、]/;
+const SENTENCE_BREAK_RE = /[。！？!?\n、]/;
 const MAX_STREAMING_SENTENCE_LENGTH = 20;
 
 function flushCompleteDiagnosticSentences(buffer: string, queue: DiagnosticSentenceQueue): string {

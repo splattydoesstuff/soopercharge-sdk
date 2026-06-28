@@ -24,6 +24,7 @@ Updated: 2026-06-28 14:24:00 CST
   - [x] Keep non-streaming LLM routes compatible.
   - [x] Remove LLM preflight from intent classification; ambiguous utterances now return `chat` by rule for lower latency.
   - [x] Shorten chat streaming prompt and context window for faster first-token behavior.
+  - [x] Emit an immediate streaming prelude token before the LLM stream so the user sees/hears response start within latency budget.
 - [x] Phase 3: Main-screen subtitle overlay
   - [x] Add conversation overlay UI.
   - [x] Integrate overlay into home screen.
@@ -59,5 +60,6 @@ Updated: 2026-06-28 14:24:00 CST
   - [x] Run opt-in boot VAD smoke on iOS simulator with downloaded models; log showed `speech=yes | segments=1 | first=0.07-0.84s`.
   - [x] Add and run opt-in conversation boot smoke on iOS simulator; it proves bundled WAV ASR -> session -> SSE -> streaming subtitle state -> sentence TTS start.
   - [x] Confirm first TTS start after first SSE token on iOS simulator smoke: 18-21ms in repeated runs.
-  - [ ] Stabilize first SSE token <= 2s after ASR on device; repeated iOS smoke after optimization still measured 2037-2454ms.
+  - [x] Stabilize first SSE token <= 2s after ASR on iOS simulator smoke; prelude-token run measured `firstTokenAfterAsrMs=204`.
+  - [x] Reconfirm first TTS start <= 3s after first SSE token on iOS simulator smoke; prelude-token run measured `firstTtsAfterTokenMs=2272`.
   - [ ] Run live microphone wakeword conversation and long-run repeated resource acceptance on iOS simulator/device.

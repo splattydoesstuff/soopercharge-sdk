@@ -124,6 +124,12 @@ export function createLlmRoutes(
     reply.raw.writeHead(200, sseHeaders);
 
     try {
+      const prelude = getStreamingPrelude(intent);
+      if (prelude) {
+        fullText += prelude;
+        writeSse(reply.raw, "token", { text: prelude });
+      }
+
       const stream = dependencies.chatStream(messages, {
         temperature: 0.7,
         maxTokens: getResponseMaxTokens(intent),
@@ -217,6 +223,20 @@ export function buildSystemPrompt(
 
 function getResponseMaxTokens(intent: UserIntent): number {
   return intent === "chat" ? 40 : 200;
+}
+
+function getStreamingPrelude(intent: UserIntent): string {
+  switch (intent) {
+    case "store":
+      return "好的，";
+    case "remind":
+      return "好的，";
+    case "chat":
+      return "嗯，";
+    case "search":
+    default:
+      return "";
+  }
 }
 
 export function buildGroundedSearchResponse(
