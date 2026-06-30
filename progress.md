@@ -282,3 +282,14 @@
   - [x] `pnpm exec tsc --noEmit`
   - [x] React Doctor changed-file scan: 88/100; remaining warnings are existing SettingsScreen size and sequential await debt.
   - [x] Android dev-client clean restart: no SVG/native module error, JS fatal, duplicate key warning, or device-tool registration failure.
+
+## README bilingual launch preparation
+
+更新时间：2026-06-29 00:00:00 UTC
+
+- [x] 梳理根 README 当前内容和 `packages/looi-sdk` 初版 API。
+- [x] 更新根 README 为中/英双版，明确 looi-sdk 是早期核心之一，RN 应用是 SDK 的应用场景之一。
+- [x] 更新 SDK README 为中/英双版，补充安装、API、设计原则和鸣谢。
+- [x] 提供 GitHub Description、Topics、Labels 建议配置。
+- [x] 感谢 `splattydoesstuff/sooperchargeforbots` 带来的切入方向。
+- [x] 运行 README/SDK 文档相关校验。
