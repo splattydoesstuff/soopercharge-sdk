@@ -54,6 +54,7 @@ async function getWakewordService() {
 
 const KWS_SAMPLE_RATE = 16000;
 const MAX_QUEUED_SAMPLES = KWS_SAMPLE_RATE * 3;
+const RECENT_SAMPLE_BUFFER_SIZE = Math.round(KWS_SAMPLE_RATE * 1.2);
 const MAX_ACCEPT_CHUNK_SAMPLES = Math.round(KWS_SAMPLE_RATE * 0.5);
 type SamplesListener = (samples: number[], sampleRate: number) => void;
 
@@ -89,6 +90,7 @@ export class KwsAudioFeeder {
   private warnedMissingFloatPayload = false;
   private sampleListeners = new Set<SamplesListener>();
   private wakewordFeedingEnabled = true;
+  private recentSamples: number[] = [];
 
   async start(): Promise<void> {
     this.desiredRunning = true;
@@ -139,6 +141,18 @@ export class KwsAudioFeeder {
     this.wakewordFeedingEnabled = enabled;
   }
 
+  getRecentSamples(durationMs: number): number[] {
+    if (durationMs <= 0 || this.recentSamples.length === 0) {
+      return [];
+    }
+
+    const sampleCount = Math.min(
+      this.recentSamples.length,
+      Math.round((KWS_SAMPLE_RATE * durationMs) / 1000)
+    );
+    return this.recentSamples.slice(-sampleCount);
+  }
+
   private async startInternal(): Promise<void> {
     try {
       if (!this.desiredRunning) return;
@@ -184,6 +198,7 @@ export class KwsAudioFeeder {
   private async stopInternal(): Promise<void> {
     this.started = false;
     this.queuedSamples = null;
+    this.recentSamples = [];
 
     this.listener?.remove();
     this.listener = null;
@@ -209,8 +224,21 @@ export class KwsAudioFeeder {
     }
 
     const samples = Array.isArray(audioData) ? audioData : Array.from(audioData);
+    this.rememberRecentSamples(samples);
     this.emitSamples(samples);
     this.enqueueSamples(samples);
+  }
+
+  private rememberRecentSamples(samples: number[]): void {
+    if (samples.length >= RECENT_SAMPLE_BUFFER_SIZE) {
+      this.recentSamples = samples.slice(-RECENT_SAMPLE_BUFFER_SIZE);
+      return;
+    }
+
+    this.recentSamples = this.recentSamples.concat(samples);
+    if (this.recentSamples.length > RECENT_SAMPLE_BUFFER_SIZE) {
+      this.recentSamples = this.recentSamples.slice(-RECENT_SAMPLE_BUFFER_SIZE);
+    }
   }
 
   private emitSamples(samples: number[]): void {

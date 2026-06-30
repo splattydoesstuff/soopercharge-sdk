@@ -4,6 +4,7 @@ type VoiceAcceptanceTraceEvent =
   | "wakeword"
   | "ignored"
   | "session"
+  | "audio-preroll"
   | "recording-started"
   | "streaming-listening-started"
   | "vad-speech"

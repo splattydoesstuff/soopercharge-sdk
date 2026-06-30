@@ -91,6 +91,23 @@ export function RobotFace({
           isAvatar ? styles.avatarHead : styles.fullscreenExpression,
         ]}
       >
+        {voiceState === "listening" ? (
+          <View style={[styles.listenBadge, isAvatar && styles.avatarListenBadge]}>
+            <View style={[styles.listenDot, isAvatar && styles.avatarListenDot]} />
+            <View style={[styles.badgeWaveRow, isAvatar && styles.avatarBadgeWaveRow]}>
+              {[0, 1, 2].map((index) => (
+                <Animated.View
+                  key={index}
+                  style={[
+                    styles.badgeWaveBar,
+                    isAvatar && styles.avatarBadgeWaveBar,
+                    index % 2 === 0 ? risingWaveStyle : fallingWaveStyle,
+                  ]}
+                />
+              ))}
+            </View>
+          </View>
+        ) : null}
         <View style={[styles.browRow, isAvatar && styles.avatarBrowRow]}>
           <View style={[styles.brow, isAvatar && styles.avatarBrow, face.browStyle]} />
           <View style={[styles.brow, isAvatar && styles.avatarBrow, face.browStyle]} />
@@ -175,7 +192,7 @@ function getFaceForState(voiceState: VoiceState) {
       return {
         eye: looiTheme.cyan,
         glow: "rgba(40, 213, 255, 0.28)",
-        mouth: "wave" as const,
+        mouth: "smile" as const,
         browStyle: styles.focusBrow,
       };
     case "processing":
@@ -254,10 +271,60 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: looiTheme.line,
     backgroundColor: "rgba(3, 12, 22, 0.78)",
-    shadowColor: looiTheme.cyan,
-    shadowOpacity: 0.28,
-    shadowRadius: 28,
-    shadowOffset: { width: 0, height: 0 },
+    boxShadow: "0 0 28px rgba(40, 213, 255, 0.28)",
+  },
+  listenBadge: {
+    position: "absolute",
+    top: 26,
+    right: 70,
+    width: 78,
+    height: 44,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: looiTheme.lineActive,
+    backgroundColor: "rgba(3, 13, 24, 0.74)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 9,
+  },
+  avatarListenBadge: {
+    top: -10,
+    right: -12,
+    width: 34,
+    height: 22,
+    gap: 4,
+  },
+  listenDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: looiTheme.cyan,
+    boxShadow: "0 0 10px rgba(40, 213, 255, 0.9)",
+  },
+  avatarListenDot: {
+    width: 4,
+    height: 4,
+  },
+  badgeWaveRow: {
+    height: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  avatarBadgeWaveRow: {
+    height: 11,
+    gap: 2,
+  },
+  badgeWaveBar: {
+    width: 4,
+    height: 14,
+    borderRadius: 999,
+    backgroundColor: looiTheme.cyan,
+  },
+  avatarBadgeWaveBar: {
+    width: 2,
+    height: 7,
   },
   browRow: {
     position: "absolute",
@@ -306,16 +373,13 @@ const styles = StyleSheet.create({
     width: 100,
     height: 60,
     borderRadius: 34,
-    shadowColor: looiTheme.cyan,
-    shadowOpacity: 0.9,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 0 },
+    boxShadow: "0 0 18px rgba(40, 213, 255, 0.9)",
   },
   avatarEye: {
     width: 14,
     height: 10,
     borderRadius: 7,
-    shadowRadius: 7,
+    boxShadow: "0 0 7px rgba(40, 213, 255, 0.9)",
   },
   eyeLookingLeft: {
     marginLeft: -10,

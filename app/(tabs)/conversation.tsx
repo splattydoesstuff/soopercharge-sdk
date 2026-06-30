@@ -12,7 +12,7 @@ import { ChatMessage, SessionSummary } from "@/src/core/context-service";
 import { sessionService } from "@/src/server-api/client";
 import { useConversationStore } from "@/src/store/conversation";
 import { ChatBubble } from "@/src/ui/ChatBubble";
-import { DeviceShell } from "@/src/ui/DeviceShell";
+import { DeviceShell, DeviceShellHeader } from "@/src/ui/DeviceShell";
 import { looiTheme } from "@/src/ui/looi-theme";
 
 type LoadedMessages = Record<string, ChatMessage[]>;
@@ -42,6 +42,8 @@ const initialHistoryState: HistoryState = {
   refreshing: false,
   error: null,
 };
+
+const EMPTY_SESSIONS: SessionSummary[] = [];
 
 function historyReducer(state: HistoryState, action: HistoryAction): HistoryState {
   switch (action.type) {
@@ -206,6 +208,23 @@ export default function ConversationScreen() {
     [activeSessionId, expandedSessionId, loadedMessages, toggleSession]
   );
 
+  const listHeader = (
+    <>
+      <DeviceShellHeader
+        title="历史"
+        eyebrow="SESSION LOG"
+        onReturnHome={() => router.replace("/")}
+      />
+      <View style={styles.headerBand}>
+        <Text style={styles.headerLabel}>会话记录</Text>
+        <Text style={styles.headerValue}>
+          {activeSessionId ? "主屏幕对话会自动归档到这里" : "等待新的会话"}
+        </Text>
+      </View>
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+    </>
+  );
+
   return (
     <DeviceShell
       title="历史"
@@ -214,25 +233,26 @@ export default function ConversationScreen() {
       onReturnHome={() => router.replace("/")}
     >
       <View style={styles.screen}>
-        <View style={styles.headerBand}>
-          <Text style={styles.headerLabel}>会话记录</Text>
-          <Text style={styles.headerValue}>
-            {activeSessionId ? "主屏幕对话会自动归档到这里" : "等待新的会话"}
-          </Text>
-        </View>
-
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
         {loading ? (
-          <View style={styles.loadingState}>
-            <ActivityIndicator color={looiTheme.cyan} />
-            <Text style={styles.loadingText}>读取历史会话</Text>
-          </View>
+          <FlatList
+            data={EMPTY_SESSIONS}
+            renderItem={null}
+            ListHeaderComponent={listHeader}
+            ListEmptyComponent={
+              <View style={styles.loadingState}>
+                <ActivityIndicator color={looiTheme.cyan} />
+                <Text style={styles.loadingText}>读取历史会话</Text>
+              </View>
+            }
+            contentContainerStyle={[styles.listContent, styles.emptyListContent]}
+            showsVerticalScrollIndicator={false}
+          />
         ) : (
           <FlatList
             data={orderedSessions}
             keyExtractor={(item) => item.id}
             renderItem={renderSession}
+            ListHeaderComponent={listHeader}
             contentContainerStyle={[
               styles.listContent,
               orderedSessions.length === 0 && styles.emptyListContent,

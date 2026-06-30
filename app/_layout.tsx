@@ -1,6 +1,6 @@
 import { useFonts } from 'expo-font';
 import * as NavigationBar from 'expo-navigation-bar';
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef } from 'react';
@@ -87,6 +87,9 @@ export default function RootLayout() {
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
+  const router = useRouter();
+  const segments = useSegments();
+  const currentRoot = String(segments[0] ?? '');
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -94,11 +97,31 @@ function RootLayoutNav() {
     NavigationBar.setVisibilityAsync('hidden').catch(console.error);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    import('@/src/setup/setup-readiness')
+      .then(({ computeSetupReadiness }) => computeSetupReadiness())
+      .then((readiness) => {
+        if (cancelled || readiness.requiredReady || readiness.onboardingCompleted) return;
+        if (currentRoot === 'onboarding') return;
+        router.replace(`/onboarding?step=${readiness.nextStep}` as never);
+      })
+      .catch((error) => {
+        console.warn('[Setup] Initial readiness routing failed:', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentRoot, router]);
+
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <StatusBar hidden />
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
       </Stack>
     </ThemeProvider>

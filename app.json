@@ -43,6 +43,14 @@
           "remindersPermission": "Allow Looi to read reminders for upcoming reminder checks"
         }
       ],
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "neverForLocation": false,
+          "bluetoothAlwaysPermission": "Allow Looi to connect to the LOOI robot over Bluetooth"
+        }
+      ],
       "@siteed/sherpa-onnx.rn/app.plugin",
       [
         "@siteed/audio-studio",

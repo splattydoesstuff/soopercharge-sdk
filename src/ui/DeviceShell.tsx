@@ -1,9 +1,11 @@
+import { RobotFace } from "@/src/ui/RobotFace";
+import { looiTheme } from "@/src/ui/looi-theme";
+import { Href, usePathname, useRouter } from "expo-router";
+import { SymbolView } from "expo-symbols";
+import regularSymbolWeight from "expo-symbols/androidWeights/regular";
 import { ReactNode } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Href, usePathname, useRouter } from "expo-router";
-import { RobotFace } from "@/src/ui/RobotFace";
-import { looiTheme } from "@/src/ui/looi-theme";
 
 type DeviceShellProps = {
   title: string;
@@ -13,11 +15,37 @@ type DeviceShellProps = {
   onReturnHome?: () => void;
 };
 
+type DeviceShellHeaderProps = {
+  title: string;
+  eyebrow?: string;
+  onReturnHome?: () => void;
+};
+
 const navItems = [
-  { href: "/conversation", matchPath: "/conversation", label: "对话", shortLabel: "C" },
-  { href: "/memories", matchPath: "/memories", label: "记忆", shortLabel: "M" },
-  { href: "/reminders", matchPath: "/reminders", label: "提醒", shortLabel: "R" },
-  { href: "/settings", matchPath: "/settings", label: "设置", shortLabel: "S" },
+  {
+    href: "/conversation",
+    matchPath: "/conversation",
+    label: "对话",
+    symbol: { ios: "message.fill", android: "chat" },
+  },
+  {
+    href: "/memories",
+    matchPath: "/memories",
+    label: "记忆",
+    symbol: { ios: "brain.head.profile", android: "psychology" },
+  },
+  {
+    href: "/reminders",
+    matchPath: "/reminders",
+    label: "提醒",
+    symbol: { ios: "bell.badge.fill", android: "notifications" },
+  },
+  {
+    href: "/settings",
+    matchPath: "/settings",
+    label: "设置",
+    symbol: { ios: "gearshape.fill", android: "settings" },
+  },
 ] as const;
 
 export function DeviceShell({
@@ -42,6 +70,7 @@ export function DeviceShell({
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
     >
+      <DeviceShellHeader title={title} eyebrow={eyebrow} onReturnHome={returnHome} />
       {children}
     </ScrollView>
   ) : (
@@ -78,10 +107,23 @@ export function DeviceShell({
                     active && styles.navItemActive,
                   ])}
                 >
-                  <Text style={[styles.navShort, active && styles.navShortActive]}>
-                    {item.shortLabel}
-                  </Text>
-                  <Text style={[styles.navLabel, active && styles.navLabelActive]}>
+                  <SymbolView
+                    name={item.symbol}
+                    size={25}
+                    tintColor={active ? looiTheme.cyan : looiTheme.muted}
+                    weight={{ ios: "semibold", android: regularSymbolWeight }}
+                    fallback={
+                      <View
+                        style={[
+                          styles.navIconFallback,
+                          active && styles.navIconFallbackActive,
+                        ]}
+                      />
+                    }
+                  />
+                  <Text
+                    style={[styles.navLabel, active && styles.navLabelActive]}
+                  >
                     {item.label}
                   </Text>
                 </Pressable>
@@ -90,17 +132,35 @@ export function DeviceShell({
           </View>
         </View>
         <View style={styles.main}>
-          <View style={styles.header}>
-            <View style={styles.titleBlock}>
-              {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
-              <Text style={styles.title}>{title}</Text>
-            </View>
-            <RobotFace mode="avatar" onPress={returnHome} />
-          </View>
           {content}
         </View>
       </View>
     </SafeAreaView>
+  );
+}
+
+export function DeviceShellHeader({
+  title,
+  eyebrow,
+  onReturnHome,
+}: DeviceShellHeaderProps) {
+  const router = useRouter();
+  const returnHome = () => {
+    if (onReturnHome) {
+      onReturnHome();
+      return;
+    }
+    router.replace("/");
+  };
+
+  return (
+    <View style={styles.header}>
+      <View style={styles.titleBlock}>
+        {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
+        <Text style={styles.title}>{title}</Text>
+      </View>
+      <RobotFace mode="avatar" onPress={returnHome} />
+    </View>
   );
 }
 
@@ -123,21 +183,21 @@ const styles = StyleSheet.create({
   frame: {
     flex: 1,
     flexDirection: "row",
-    padding: 14,
-    gap: 14,
+    padding: 10,
+    gap: 10,
   },
   rail: {
-    width: 104,
-    borderRadius: 28,
+    width: 92,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: looiTheme.line,
     backgroundColor: looiTheme.rail,
     alignItems: "center",
-    paddingVertical: 14,
+    paddingVertical: 10,
   },
   homeButton: {
-    width: 72,
-    height: 42,
+    width: 66,
+    height: 36,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
@@ -155,13 +215,13 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
     justifyContent: "center",
-    gap: 12,
-    paddingVertical: 10,
+    gap: 8,
+    paddingVertical: 8,
   },
   navItem: {
-    width: 78,
-    minHeight: 64,
-    borderRadius: 18,
+    width: 70,
+    minHeight: 56,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "transparent",
     alignItems: "center",
@@ -172,13 +232,15 @@ const styles = StyleSheet.create({
     borderColor: looiTheme.lineActive,
     backgroundColor: "rgba(40, 213, 255, 0.08)",
   },
-  navShort: {
-    color: looiTheme.muted,
-    fontSize: 18,
-    fontWeight: "700",
+  navIconFallback: {
+    width: 22,
+    height: 22,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: looiTheme.muted,
   },
-  navShortActive: {
-    color: looiTheme.cyan,
+  navIconFallbackActive: {
+    borderColor: looiTheme.cyan,
   },
   navLabel: {
     color: looiTheme.muted,
@@ -196,40 +258,40 @@ const styles = StyleSheet.create({
     backgroundColor: looiTheme.bgRaised,
   },
   header: {
-    minHeight: 122,
-    paddingHorizontal: 28,
-    paddingTop: 18,
-    paddingBottom: 8,
+    minHeight: 78,
+    paddingBottom: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   titleBlock: {
     flex: 1,
-    paddingRight: 18,
+    paddingRight: 12,
   },
   eyebrow: {
     color: looiTheme.cyan,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
-    marginBottom: 6,
+    marginBottom: 4,
   },
   title: {
     color: looiTheme.text,
-    fontSize: 34,
-    lineHeight: 40,
+    fontSize: 28,
+    lineHeight: 32,
     fontWeight: "700",
   },
   scroll: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 28,
-    paddingBottom: 28,
+    paddingHorizontal: 22,
+    paddingBottom: 22,
+    paddingTop: 12,
   },
   fixedContent: {
     flex: 1,
-    paddingHorizontal: 28,
-    paddingBottom: 28,
+    paddingHorizontal: 22,
+    paddingBottom: 22,
+    paddingTop: 12,
   },
 });

@@ -43,13 +43,10 @@ const SPEAKER_MODEL_DIR = "sherpa-onnx/speaker-id/looi";
 const KWS_TMP_DIR = `${FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? ""}sherpa-onnx-download/`;
 const KWS_ARCHIVE_PATH = `${KWS_TMP_DIR}sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile.tar.bz2`;
 const KWS_EXTRACT_ROOT = `${KWS_TMP_DIR}extract/`;
-const KWS_EXTRACTED_DIR = `${KWS_EXTRACT_ROOT}sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile/`;
 const STREAMING_ASR_ARCHIVE_PATH = `${KWS_TMP_DIR}sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2`;
 const STREAMING_ASR_EXTRACT_ROOT = `${KWS_TMP_DIR}streaming-asr/`;
-const STREAMING_ASR_EXTRACTED_DIR = `${STREAMING_ASR_EXTRACT_ROOT}sherpa-onnx-streaming-paraformer-bilingual-zh-en/`;
 const PUNCT_ARCHIVE_PATH = `${KWS_TMP_DIR}sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2`;
 const PUNCT_EXTRACT_ROOT = `${KWS_TMP_DIR}punctuation/`;
-const PUNCT_EXTRACTED_DIR = `${PUNCT_EXTRACT_ROOT}sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8/`;
 const KWS_ARCHIVE_URL =
   "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile.tar.bz2";
 const STREAMING_ASR_ARCHIVE_URL =
@@ -138,13 +135,67 @@ async function downloadFile(
   emit(onProgress, stage, label, baseProgress + progressSpan);
 }
 
-async function copyFileIfNeeded(source: string, destination: string): Promise<void> {
+function withTrailingSlash(uri: string): string {
+  return uri.endsWith("/") ? uri : `${uri}/`;
+}
+
+async function findExtractedFile(
+  rootDir: string,
+  filename: string,
+  depth = 0
+): Promise<string | null> {
+  if (depth > 6) return null;
+
+  const root = withTrailingSlash(rootDir);
+  let entries: string[];
+  try {
+    entries = await FileSystem.readDirectoryAsync(root);
+  } catch {
+    return null;
+  }
+
+  for (const entry of entries) {
+    const uri = `${root}${entry}`;
+    const info = await FileSystem.getInfoAsync(uri);
+    if (!info.exists) continue;
+
+    const isDirectory = "isDirectory" in info && info.isDirectory;
+    if (!isDirectory && entry === filename && (info.size ?? 0) > 0) {
+      return uri;
+    }
+
+    if (isDirectory) {
+      const found = await findExtractedFile(uri, filename, depth + 1);
+      if (found) return found;
+    }
+  }
+
+  return null;
+}
+
+async function copyFileIfNeeded(source: string, destination: string, label: string): Promise<void> {
   if (await fileReady(destination)) return;
   if (!(await fileReady(source))) {
-    throw new Error(`KWS 解压后缺少文件：${source}`);
+    throw new Error(`${label}缺少文件：${source}`);
   }
   await ensureDir(destination.slice(0, destination.lastIndexOf("/") + 1));
   await FileSystem.copyAsync({ from: source, to: destination });
+}
+
+async function copyExtractedFileIfNeeded(
+  extractRoot: string,
+  filename: string,
+  destination: string,
+  label: string
+): Promise<void> {
+  if (await fileReady(destination)) return;
+
+  const source = await findExtractedFile(extractRoot, filename);
+  if (!source) {
+    throw new Error(`${label}解压后缺少模型文件：${filename}`);
+  }
+
+  await copyFileIfNeeded(source, destination, label);
 }
 
 async function extractArchive(
@@ -156,10 +207,24 @@ async function extractArchive(
 ): Promise<void> {
   await FileSystem.deleteAsync(extractRoot, { idempotent: true });
   await ensureDir(extractRoot);
-  emit(onProgress, stage, label, 0);
-  const extraction = await SherpaOnnx.Archive.extractTarBz2(archivePath, extractRoot);
-  if (!extraction.success) {
-    throw new Error(extraction.message || `${label}失败`);
+  emit(onProgress, stage, label, 0.03);
+
+  let simulatedProgress = 0.03;
+  const timer = setInterval(() => {
+    simulatedProgress = Math.min(
+      0.9,
+      simulatedProgress + (simulatedProgress < 0.55 ? 0.08 : 0.035)
+    );
+    emit(onProgress, stage, label, simulatedProgress);
+  }, 350);
+
+  try {
+    const extraction = await SherpaOnnx.Archive.extractTarBz2(archivePath, extractRoot);
+    if (!extraction.success) {
+      throw new Error(extraction.message || `${label}失败`);
+    }
+  } finally {
+    clearInterval(timer);
   }
   emit(onProgress, stage, label, 1);
 }
@@ -193,7 +258,12 @@ async function downloadStreamingAsr(
   for (let index = 0; index < STREAMING_ASR_FILES.length; index += 1) {
     const filename = STREAMING_ASR_FILES[index];
     if (missing.missingFiles.includes(filename)) {
-      await copyFileIfNeeded(`${STREAMING_ASR_EXTRACTED_DIR}${filename}`, `${modelDir}${filename}`);
+      await copyExtractedFileIfNeeded(
+        STREAMING_ASR_EXTRACT_ROOT,
+        filename,
+        `${modelDir}${filename}`,
+        "流式语音识别模型包"
+      );
     }
     emit(
       onProgress,
@@ -228,7 +298,12 @@ async function downloadKws(
 
     for (let index = 0; index < KWS_FILES.length; index += 1) {
       const filename = KWS_FILES[index];
-      await copyFileIfNeeded(`${KWS_EXTRACTED_DIR}${filename}`, `${modelDir}${filename}`);
+      await copyExtractedFileIfNeeded(
+        KWS_EXTRACT_ROOT,
+        filename,
+        `${modelDir}${filename}`,
+        "唤醒词模型包"
+      );
       emit(onProgress, "kws-copy", "安装唤醒词模型", (index + 1) / KWS_FILES.length);
     }
   }
@@ -303,7 +378,12 @@ async function downloadPunctuation(
   for (let index = 0; index < PUNCT_FILES.length; index += 1) {
     const filename = PUNCT_FILES[index];
     if (missing.missingFiles.includes(filename)) {
-      await copyFileIfNeeded(`${PUNCT_EXTRACTED_DIR}${filename}`, `${modelDir}${filename}`);
+      await copyExtractedFileIfNeeded(
+        PUNCT_EXTRACT_ROOT,
+        filename,
+        `${modelDir}${filename}`,
+        "标点恢复模型包"
+      );
     }
     emit(
       onProgress,

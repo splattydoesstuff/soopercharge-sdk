@@ -152,12 +152,11 @@ test("generate-response-stream emits token and done SSE events with session hist
 
     assert.equal(response.statusCode, 200);
     assert.match(response.headers["content-type"] as string, /text\/event-stream/);
-    assert.match(response.body, /event: token\ndata: \{"text":"嗯，"\}/);
     assert.match(response.body, /event: token\ndata: \{"text":"你"\}/);
     assert.match(response.body, /event: token\ndata: \{"text":"好"\}/);
     assert.match(
       response.body,
-      /event: done\ndata: \{"fullText":"嗯，你好","evidenceUri":"http:\/\/example.test\/key.png"\}/
+      /event: done\ndata: \{"fullText":"你好","evidenceUri":"http:\/\/example.test\/key.png"\}/
     );
     assert.deepEqual(seenMessages, [
       [

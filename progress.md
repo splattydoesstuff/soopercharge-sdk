@@ -2,6 +2,75 @@
 
 更新时间：2026-06-28 13:11:25 CST
 
+## Device tools WebSocket 迁移
+
+更新时间：2026-06-30 CST
+
+- [x] 确认现有短轮询日志来自 `/api/device-tools/poll` 每 1.5 秒访问一次。
+- [x] 服务端新增 device tools WebSocket 通道，移除 HTTP poll/result/registration 执行通道。
+- [x] 客户端 device tools 改为 WebSocket-only，断线后自动重连。
+- [x] 更新测试和文档，验证 robot move 调用仍能收到客户端执行结果。
+
+## TTS 字幕同步修复
+
+更新时间：2026-06-30 CST
+
+- [x] 确认主链路仍走 SSE 流式 LLM：客户端消费 `/api/llm/generate-response-stream` token，服务端逐 token 写入 SSE。
+- [x] 将 TTS 句子开始回调从“合成前”调整为“播放器开始播放后”。
+- [x] TTS 开启时，首屏字幕改为跟随已开始播放的句子显示，不再跟随首 token 立即展示。
+- [x] 非流式兜底和 conversation smoke 诊断链路同步采用播放开始后显示字幕。
+
+## 首次引导与语音初始化 Plan
+
+更新时间：2026-06-30 CST
+
+- [x] 新增 `docs/onboarding-voice-setup-plan.md`，覆盖首进 onboarding、模型下载、声纹录入、权限/设备能力、首页修复入口、设置页重组。
+- [x] 将声纹数据结构从裸 `embeddings: number[][]` 调整为 `templates: StoredSpeakerTemplate[]`，包含来源、时长、质量、prompt 等元数据。
+- [x] 明确第一版只支持手动追加录入，不实现验证通过后的自动自适应更新。
+- [x] 补充 score trace 策略，用于后续阈值审计和 non-owner 回归分析，不保存原始音频。
+- [x] 补充可验收需求矩阵、阶段门禁和验收标准。
+- [x] 同步更新 `docs/speaker-id-multi-enrollment.md`，使声纹专项方案与 onboarding plan 保持一致。
+
+## 首次引导与声纹多样本实施
+
+更新时间：2026-06-30 CST
+
+- [x] 读取 `docs/onboarding-voice-setup-plan.md` 与 `docs/speaker-id-multi-enrollment.md`，确认验收范围。
+- [x] 检查当前 worktree，确认已有改动集中在设备工具、设置页、首页、声纹与文档。
+- [x] Phase 1：声纹服务 v2 数据结构与本地多模板验证。
+  - [x] `StoredSpeakerEmbedding` 升级为 v2 `templates[] + centroid`。
+  - [x] v1 MMKV / SecureStore payload 自动迁移为 v2。
+  - [x] `enroll()` 支持多样本并写入模板 metadata。
+  - [x] `appendEnrollmentSample()` 支持设置页手动追加。
+  - [x] 验证改为 `max(centroidScore, bestTemplateScore)` 本地判定。
+  - [x] 验证 score trace 只记录分数、模板 ID、阈值和来源。
+  - [x] 验证通过后不自动写入模板或修改 centroid。
+- [x] Phase 2：setup readiness 与 onboarding。
+  - [x] 新增 setup storage，记录 onboarding completion 与可选能力 skip。
+  - [x] 新增 setup readiness，冷启动聚合模型、声纹、权限、机器人状态。
+  - [x] 新增 onboarding route，覆盖模型、声纹、权限、完成步骤。
+  - [x] 模型步骤接入检查、下载进度、失败重试。
+  - [x] 声纹步骤实现 3-5 段录音、质量反馈、重录和完成注册。
+  - [x] 权限步骤支持麦克风必需，相机/日历/机器人可跳过。
+- [x] Phase 3：首页与设置页验收面。
+  - [x] 首页显示模型/声纹未就绪修复入口，并跳回对应 onboarding 步骤。
+  - [x] 首页快捷入口改为清晰动作。
+  - [x] 设置页重组为健康摘要、常用设置、高级诊断。
+  - [x] 高级诊断默认折叠。
+  - [x] 设置页支持追加录入并展示样本数。
+- [ ] Phase 4：验证与验收。
+  - [x] `pnpm exec tsc --noEmit`
+  - [x] `pnpm test`
+  - [x] `pnpm --dir server test`
+  - [x] React Doctor 检查 React 变更；剩余 warning 为 SettingsScreen 体积和录音诊断时序误报。
+  - [x] iOS build-only smoke：`pnpm exec expo run:ios --device generic --no-bundler --output ./output/onboarding-ios-build-smoke`，构建成功 0 error / 23 warning。
+  - [x] 修复模型包解压后安装逻辑：不再依赖固定顶层目录，按文件名递归查找流式 ASR / KWS / 标点模型产物。
+  - [x] 解压阶段补充模拟进度回调，避免下载完成后长时间无进度反馈。
+  - [x] 声纹录入卡片补充推荐朗读短句，覆盖正常、轻声、快语速、日常和远场，中英混合但不声称官方固定文本。
+  - [x] 定位 Android 首页约 3 秒闪烁为后台隐藏 `CameraView` + 周期 `takePictureAsync` 导致，移除首页自动相机 feeder 止血。
+  - [ ] iOS 模拟器首进流程交互 smoke。
+  - [ ] 逐项审计 R1-R12 和声纹专项验收标准。
+
 ## Streaming Paraformer + CT-Punc 实施
 
 更新时间：2026-06-29 00:00:00 CST
@@ -132,3 +201,61 @@
 - [x] Document that native BLE transport binding is the remaining device-side step.
 - [x] Run app/server/package validation.
 - [x] Commit changes and open PR.
+
+## LOOI robot real-run integration
+
+- [x] Audit current SDK/device-tool wiring and confirm native BLE transport is still missing.
+- [x] Add a React Native BLE transport and bind it through `configureLooiRobotTransport()`.
+- [x] Add Settings robot scan/retry/select flow before first connection.
+- [x] Start saved robot reconnect/handshake automatically from the home screen after user selection.
+- [x] Add a deterministic server route that invokes registered `looi_move` device tools.
+- [x] Validate app/server checks and document remaining real-device acceptance steps.
+  - [x] `pnpm exec tsc --noEmit`
+  - [x] `pnpm --dir server test`
+  - [x] `pnpm test`
+  - [x] React Doctor changed-file scan: 100/100, no issues.
+  - [ ] Real LOOI robot hardware acceptance: scan -> connect -> handshake -> physical move.
+
+## 唤醒后音频丢失修复 (wakeword-audio-gap)
+
+更新时间：2026-06-30 CST
+
+- [x] 措施 1: App 启动时预热 STT createStream
+- [x] 措施 2: sessionService.touch() 改为非阻塞
+- [x] 措施 3: 唤醒时跳过冗余 stopListeningStreaming
+- [x] 措施 4: VAD + STT 并行启动
+- [x] 措施 6: preroll 取量从 700ms 增到 1000ms
+- [x] 验证: tsc + test + React Doctor
+- [ ] 真机验证: 唤醒词+命令连续说，确认 ASR 完整识别
+
+## Android dev-client restart bug investigation
+
+- [x] Start the Expo dev server with `pnpm dev`.
+- [x] Detect the connected Android target and restart the dev client.
+- [x] Capture Metro/Android logs and identify the runtime failure.
+  - [x] Android bundle completed and app initialized.
+  - [x] Observed `[Bootstrap] Failed to register device tools: fetch failed: java.net.NoRouteToHostException: Host unreachable`.
+- [x] Apply a focused fix if the failure is in app code.
+  - [x] Updated local `.env` server URLs from the stale LAN IP to the current host IP.
+- [x] Run the smallest relevant validation and update follow-up notes.
+  - [x] Confirmed `http://192.168.3.73:8080/health` from the host.
+  - [x] Restarted Metro after env reload and relaunched Android dev client.
+  - [x] Confirmed Metro/logcat no longer show `NoRouteToHost` or device-tool registration failure.
+  - [x] Fixed duplicate React key warning in home quick actions by using stable action IDs instead of route hrefs.
+  - [x] Re-ran Android dev-client clean log check; no duplicate key warning, JS fatal, or device-tool registration failure.
+  - [x] `pnpm exec tsc --noEmit`
+  - [x] React Doctor changed-file scan: 88/100, remaining warnings are existing SettingsScreen size and sequential await debt.
+
+## Home robot interaction UI refinement
+
+- [x] Replace visible Chinese quick-action chips with icon-only controls backed by existing `expo-symbols`.
+- [x] Keep action names as accessibility labels while removing visible prompt text from the quick panel.
+- [x] Replace in-page side navigation letters with `expo-symbols` icon + title controls.
+- [x] Increase shared page scrollable area by compacting `DeviceShell` frame padding, side rail, header height, and title sizing.
+- [x] Move the listening wave from the robot mouth into a compact head-top status badge.
+- [x] Keep the robot mouth as an expression during listening.
+- [x] Update RobotFace shadows to cross-platform `boxShadow`.
+- [x] Validate changes.
+  - [x] `pnpm exec tsc --noEmit`
+  - [x] React Doctor changed-file scan: 88/100; remaining warnings are existing SettingsScreen size and sequential await debt.
+  - [x] Android dev-client clean restart: no SVG/native module error, JS fatal, duplicate key warning, or device-tool registration failure.

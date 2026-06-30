@@ -11,7 +11,7 @@ import { memoryService } from "@/src/server-api/client";
 import { MemoryResult } from "@/src/core/context-service";
 import { MemoryCard } from "@/src/ui/MemoryCard";
 import { MemoryCategory } from "@/src/core/observation";
-import { DeviceShell } from "@/src/ui/DeviceShell";
+import { DeviceShell, DeviceShellHeader } from "@/src/ui/DeviceShell";
 import { looiTheme } from "@/src/ui/looi-theme";
 
 const CATEGORIES: { label: string; value: MemoryCategory | "all" }[] = [
@@ -95,9 +95,9 @@ export default function MemoriesScreen() {
     ),
     [onRefresh, refreshing]
   );
-
-  return (
-    <DeviceShell title="记忆" eyebrow="MEMORY SPACE" scroll={false}>
+  const listHeader = (
+    <>
+      <DeviceShellHeader title="记忆" eyebrow="MEMORY SPACE" />
       <View style={styles.headerPanel}>
         <View>
           <Text style={styles.headerLabel}>脑内片段</Text>
@@ -124,12 +124,17 @@ export default function MemoriesScreen() {
           );
         })}
       </View>
+    </>
+  );
 
+  return (
+    <DeviceShell title="记忆" eyebrow="MEMORY SPACE" scroll={false}>
       <SectionList
         sections={sections}
         style={styles.list}
         keyExtractor={(item) => item.id}
         renderItem={renderMemory}
+        ListHeaderComponent={listHeader}
         renderSectionHeader={({ section }) =>
           section.data.length > 0 ? (
             <Text style={styles.sectionTitle}>{section.title}</Text>

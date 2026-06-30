@@ -52,7 +52,7 @@ assertPresent("src/voice/stt.ts", [
 
 assertPresent("src/perceivers/voice-perceiver.ts", [
   /streamingSttService\.acceptSamples/,
-  /punctuationService\.addPunctuation\(rawTranscript\)/,
+  /punctuationService\.addPunctuation\([^)]+\)/,
   /const speakerSamples = this\.getSpeakerVerificationSamples\(\)/,
   /speakerIdService\.verifySamples\(speakerSamples\)/,
   /kwsAudioFeeder\.subscribeSamples/,
@@ -70,6 +70,26 @@ assertPresent("src/voice/speaker-id.ts", [
   /Migrated owner embedding from SecureStore to MMKV/,
   /SecureStore\.getItemAsync/,
   /verifyDiagnosticNonOwner\(\)/,
+]);
+
+assertPresent("src/voice/speaker-id.ts", [
+  /version: 2/,
+  /templates: StoredSpeakerTemplate\[\]/,
+  /centroid: number\[\]/,
+  /migrateV1ToV2/,
+  /appendEnrollmentSample\(/,
+  /getEnrollmentSummary\(/,
+  /cosineSimilarity\(/,
+  /evaluateEmbedding\(/,
+  /Math\.max\(centroidScore, bestTemplateScore\)/,
+  /OWNER_SCORE_TRACE_MMKV_KEY/,
+  /MAX_SCORE_TRACES = 100/,
+  /source: "settings-append"/,
+  /diagnostic-non-owner/,
+]);
+
+assertAbsent("src/voice/speaker-id.ts", [
+  /\.verifySpeaker\(/,
 ]);
 
 assertPresent("src/voice/sherpa-adapter.ts", [

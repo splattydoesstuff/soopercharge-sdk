@@ -1,4 +1,4 @@
-import { useCallback, useReducer, useEffect } from "react";
+import { useCallback, useReducer, useEffect, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -28,6 +28,14 @@ import {
 } from "@/src/voice/sherpa-model-download";
 import { DeviceShell } from "@/src/ui/DeviceShell";
 import { looiTheme } from "@/src/ui/looi-theme";
+import {
+  clearSavedLooiRobot,
+  connectSelectedLooiRobot,
+  getSavedLooiRobot,
+  scanLooiRobotCandidates,
+  type LooiRobotCandidate,
+  type SavedLooiRobot,
+} from "@/src/device-tools/looi-robot-autoconnect";
 
 const CALENDAR_SMOKE_TITLE = "Phase 1 真实日历提醒诊断";
 const CALENDAR_SMOKE_CALENDAR_TITLE = "LOOI Phase 1 Diagnostics";
@@ -48,6 +56,23 @@ type Preferences = ReturnType<typeof useUserStore.getState>["preferences"];
 type KwsDiagnosticResult = {
   detected?: boolean;
   keyword?: string;
+};
+
+type RobotSettingsState = {
+  saved: SavedLooiRobot | null;
+  candidates: LooiRobotCandidate[];
+  scanning: boolean;
+  connectingId: string | null;
+  connected: boolean;
+  result: string | null;
+  error: string | null;
+};
+
+type SpeakerEnrollmentSummaryState = {
+  enrolled: boolean;
+  sampleCount: number;
+  templateLimit: number;
+  updatedAt?: string;
 };
 
 async function getVoiceServices() {
@@ -118,6 +143,9 @@ type SettingsUiState = {
     downloadProgress: SherpaModelDownloadProgress | null;
     error: string | null;
   };
+  speakerSummary: {
+    status: SpeakerEnrollmentSummaryState | null;
+  };
 };
 
 type SettingsUiAction =
@@ -151,7 +179,8 @@ type SettingsUiAction =
   | { type: "models/download-started" }
   | { type: "models/download-progress"; progress: SherpaModelDownloadProgress }
   | { type: "models/download-succeeded"; status: SherpaModelStatus }
-  | { type: "models/download-failed"; error: string };
+  | { type: "models/download-failed"; error: string }
+  | { type: "speaker-summary/loaded"; status: SpeakerEnrollmentSummaryState };
 
 const initialSettingsUiState: SettingsUiState = {
   enrollment: {
@@ -198,6 +227,19 @@ const initialSettingsUiState: SettingsUiState = {
     downloadProgress: null,
     error: null,
   },
+  speakerSummary: {
+    status: null,
+  },
+};
+
+const initialRobotSettingsState: RobotSettingsState = {
+  saved: null,
+  candidates: [],
+  scanning: false,
+  connectingId: null,
+  connected: false,
+  result: null,
+  error: null,
 };
 
 function settingsUiReducer(
@@ -386,6 +428,11 @@ function settingsUiReducer(
           error: action.error,
         },
       };
+    case "speaker-summary/loaded":
+      return {
+        ...state,
+        speakerSummary: { status: action.status },
+      };
     default:
       return state;
   }
@@ -446,7 +493,10 @@ export default function SettingsScreen() {
     downloadProgress: modelDownloadProgress,
     error: modelError,
   } = uiState.models;
+  const speakerSummary = uiState.speakerSummary.status;
   const addConversationMessage = useConversationStore((state) => state.addMessage);
+  const [robotState, setRobotState] = useState<RobotSettingsState>(initialRobotSettingsState);
+  const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false);
 
   const checkConnection = useCallback(async () => {
     const connected = await checkServerHealth();
@@ -456,6 +506,111 @@ export default function SettingsScreen() {
   useEffect(() => {
     checkConnection();
   }, [checkConnection]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSavedLooiRobot()
+      .then((saved) => {
+        if (!cancelled) {
+          setRobotState((state) => ({ ...state, saved }));
+        }
+      })
+      .catch((error) => {
+        console.warn("[Settings] Failed to load saved LOOI robot:", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const scanRobots = useCallback(async () => {
+    if (robotState.scanning || robotState.connectingId) return;
+
+    setRobotState((state) => ({
+      ...state,
+      scanning: true,
+      result: null,
+      error: null,
+    }));
+
+    try {
+      const candidates = await scanLooiRobotCandidates();
+      setRobotState((state) => ({
+        ...state,
+        candidates,
+        scanning: false,
+        result: candidates.length > 0 ? `发现 ${candidates.length} 台 LOOI` : "未发现 LOOI，可重试",
+        error: null,
+      }));
+    } catch (error) {
+      console.error("[Settings] LOOI robot scan failed:", error);
+      setRobotState((state) => ({
+        ...state,
+        scanning: false,
+        result: null,
+        error: error instanceof Error ? error.message : "机器人扫描失败",
+      }));
+    }
+  }, [robotState.connectingId, robotState.scanning]);
+
+  const connectRobot = useCallback(async (candidate: LooiRobotCandidate) => {
+    if (robotState.scanning || robotState.connectingId) return;
+
+    setRobotState((state) => ({
+      ...state,
+      connectingId: candidate.id,
+      result: null,
+      error: null,
+    }));
+
+    try {
+      const robot = { id: candidate.id, name: candidate.name };
+      await connectSelectedLooiRobot(robot);
+      setRobotState((state) => ({
+        ...state,
+        saved: robot,
+        candidates: state.candidates.map((item) => ({
+          ...item,
+          selected: item.id === candidate.id,
+        })),
+        connectingId: null,
+        connected: true,
+        result: `${candidate.name} 已连接并完成握手`,
+        error: null,
+      }));
+    } catch (error) {
+      console.error("[Settings] LOOI robot connect failed:", error);
+      setRobotState((state) => ({
+        ...state,
+        connectingId: null,
+        connected: false,
+        result: null,
+        error: error instanceof Error ? error.message : "机器人连接失败",
+      }));
+    }
+  }, [robotState.connectingId, robotState.scanning]);
+
+  const forgetRobot = useCallback(async () => {
+    if (robotState.scanning || robotState.connectingId) return;
+
+    try {
+      await clearSavedLooiRobot();
+      setRobotState((state) => ({
+        ...state,
+        saved: null,
+        candidates: state.candidates.map((candidate) => ({ ...candidate, selected: false })),
+        connected: false,
+        result: "已清除已选机器人",
+        error: null,
+      }));
+    } catch (error) {
+      console.error("[Settings] Failed to forget LOOI robot:", error);
+      setRobotState((state) => ({
+        ...state,
+        error: error instanceof Error ? error.message : "清除机器人失败",
+      }));
+    }
+  }, [robotState.connectingId, robotState.scanning]);
 
   const checkSherpaModels = useCallback(async () => {
     if (uiState.models.downloading) return;
@@ -492,25 +647,52 @@ export default function SettingsScreen() {
     checkSherpaModels();
   }, [checkSherpaModels]);
 
+  const refreshSpeakerSummary = useCallback(async () => {
+    const { speakerIdService } = await getVoiceServices();
+    const service = speakerIdService as typeof speakerIdService & {
+      getEnrollmentSummary?: () => Promise<{
+        enrolled: boolean;
+        sampleCount: number;
+        templateLimit: number;
+        updatedAt?: string;
+      }>;
+    };
+    if (service.getEnrollmentSummary) {
+      const summary = await service.getEnrollmentSummary();
+      const status = {
+        enrolled: summary.enrolled,
+        sampleCount: summary.sampleCount,
+        templateLimit: summary.templateLimit,
+        updatedAt: summary.updatedAt,
+      };
+      dispatchUi({ type: "speaker-summary/loaded", status });
+      setVoiceEnrolled(summary.enrolled);
+      return;
+    }
+
+    const enrolled = await speakerIdService.getStoredEnrollmentStatus();
+    dispatchUi({
+      type: "speaker-summary/loaded",
+      status: {
+        enrolled,
+        sampleCount: enrolled ? 1 : 0,
+        templateLimit: 1,
+      },
+    });
+    setVoiceEnrolled(enrolled);
+  }, [setVoiceEnrolled]);
+
   useEffect(() => {
     let cancelled = false;
-    getVoiceServices()
-      .then(({ speakerIdService }) => speakerIdService.getStoredEnrollmentStatus())
-      .then((enrolled) => {
-        if (!cancelled) {
-          setVoiceEnrolled(enrolled);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setVoiceEnrolled(false);
-        }
-      });
-
+    refreshSpeakerSummary().catch(() => {
+      if (!cancelled) {
+        setVoiceEnrolled(false);
+      }
+    });
     return () => {
       cancelled = true;
     };
-  }, [setVoiceEnrolled]);
+  }, [refreshSpeakerSummary, setVoiceEnrolled]);
 
   const startEnrollment = useCallback(async () => {
     if (enrolling || savingEnrollment) return;
@@ -543,8 +725,35 @@ export default function SettingsScreen() {
         getLiveSampleRecorder(),
       ]);
       const samples = await liveSampleRecorder.stop();
-      await speakerIdService.enroll(samples);
+      const service = speakerIdService as typeof speakerIdService & {
+        appendEnrollmentSample?: (
+          sample: { samples: number[]; durationMs: number; quality: { ok: boolean; durationMs: number; energyMean: number } },
+          options?: { promptId?: string }
+        ) => Promise<unknown>;
+      };
+      const quality = buildSettingsEnrollmentQuality(samples);
+      if (!quality.ok) {
+        throw new Error(quality.reason === "too-short" ? "声纹样本太短" : "声纹样本太轻");
+      }
+      if (voiceEnrolled && service.appendEnrollmentSample) {
+        await service.appendEnrollmentSample(
+          {
+            samples,
+            durationMs: quality.durationMs,
+            quality,
+          },
+          { promptId: "settings-append" }
+        );
+      } else {
+        await speakerIdService.enroll(samples, {
+          source: "settings-append",
+          promptId: "settings-initial",
+          durationMs: quality.durationMs,
+          quality,
+        });
+      }
       setVoiceEnrolled(true);
+      await refreshSpeakerSummary();
       dispatchUi({ type: "enrollment/saved" });
     } catch (error) {
       console.error("[Settings] Failed to save speaker enrollment:", error);
@@ -556,7 +765,7 @@ export default function SettingsScreen() {
         .catch(() => undefined);
       setVoiceState("sleeping");
     }
-  }, [enrolling, setVoiceEnrolled, setVoiceState]);
+  }, [enrolling, refreshSpeakerSummary, setVoiceEnrolled, setVoiceState, voiceEnrolled]);
 
   const clearVoiceEnrollment = useCallback(async () => {
     if (
@@ -574,11 +783,13 @@ export default function SettingsScreen() {
       const { speakerIdService } = await getVoiceServices();
       await speakerIdService.clearEnrollment();
       setVoiceEnrolled(false);
+      await refreshSpeakerSummary();
     } catch (error) {
       console.error("[Settings] Failed to clear speaker enrollment:", error);
     }
   }, [
     enrolling,
+    refreshSpeakerSummary,
     savingEnrollment,
     setVoiceEnrolled,
     smokeRecording,
@@ -673,10 +884,12 @@ export default function SettingsScreen() {
       setVoiceState("verifying");
       const samples = await liveSampleRecorder.stop();
       const enrolled = await speakerIdService.refreshEnrollmentStatus();
-      const verified = enrolled ? await speakerIdService.verifySamples(samples) : false;
-      const nonOwnerVerified = enrolled
-        ? await speakerIdService.verifyDiagnosticNonOwner()
-        : false;
+      const [verified, nonOwnerVerified] = enrolled
+        ? await Promise.all([
+            speakerIdService.verifySamples(samples, "diagnostic-owner"),
+            speakerIdService.verifyDiagnosticNonOwner(),
+          ])
+        : [false, false];
       if (nonOwnerVerified) {
         throw new Error("Diagnostic non-owner sample was accepted");
       }
@@ -894,32 +1107,34 @@ export default function SettingsScreen() {
         </View>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>模型</Text>
-          <Text style={styles.summaryValue}>{modelStatus ? "已检查" : "未检查"}</Text>
+          <Text style={[
+            styles.summaryValue,
+            modelStatus && isAllVoiceModelsReady(modelStatus) ? styles.okText : styles.warnText,
+          ]}>
+            {modelStatus ? (isAllVoiceModelsReady(modelStatus) ? "已就绪" : "待安装") : "未检查"}
+          </Text>
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>机器人</Text>
+          <Text style={[styles.summaryValue, robotState.connected ? styles.okText : styles.warnText]}>
+            {robotState.connected ? "已连接" : robotState.saved ? "已选择" : "未选择"}
+          </Text>
         </View>
       </View>
 
+      <SectionTitle isDark={isDark}>常用设置</SectionTitle>
       <View style={styles.capabilityGrid}>
         <ProfileSection
           isDark={isDark}
           name={name}
           voiceEnrolled={voiceEnrolled}
+          speakerSummary={speakerSummary}
           enrolling={enrolling}
           savingEnrollment={savingEnrollment}
           enrollmentError={enrollmentError}
-          smokeRecording={smokeRecording}
-          smokeRunning={smokeRunning}
-          smokeResult={smokeResult}
-          smokeError={smokeError}
-          speakerVerifyRecording={speakerVerifyRecording}
-          speakerVerifyRunning={speakerVerifyRunning}
-          speakerVerifyResult={speakerVerifyResult}
-          speakerVerifyError={speakerVerifyError}
           startEnrollment={startEnrollment}
           finishEnrollment={finishEnrollment}
           clearVoiceEnrollment={clearVoiceEnrollment}
-          startVoiceSmoke={startVoiceSmoke}
-          finishVoiceSmoke={finishVoiceSmoke}
-          runSpeakerVerify={runSpeakerVerify}
         />
 
         <VoiceModelsSection
@@ -929,51 +1144,70 @@ export default function SettingsScreen() {
           downloadingModels={downloadingModels}
           downloadProgress={modelDownloadProgress}
           modelError={modelError}
-          kwsSmokeRunning={kwsSmokeRunning}
-          kwsSmokeResult={kwsSmokeResult}
-          kwsSmokeError={kwsSmokeError}
-          vadSmokeRunning={vadSmokeRunning}
-          vadSmokeResult={vadSmokeResult}
-          vadSmokeError={vadSmokeError}
           checkSherpaModels={checkSherpaModels}
           downloadSherpaModels={downloadSherpaModels}
-          runKwsSmoke={runKwsSmoke}
-          runVadSmoke={runVadSmoke}
         />
       </View>
 
       <View style={styles.capabilityGrid}>
-        <VisualMemorySection
+        <RobotSection
           isDark={isDark}
-          running={visualSmokeRunning}
-          result={visualSmokeResult}
-          error={visualSmokeError}
-          runVisualSmoke={runVisualSmoke}
+          robotState={robotState}
+          scanRobots={scanRobots}
+          connectRobot={connectRobot}
+          forgetRobot={forgetRobot}
         />
 
-        <CalendarReminderSection
-          isDark={isDark}
-          running={calendarSmokeRunning}
-          result={calendarSmokeResult}
-          error={calendarSmokeError}
-          runCalendarSmoke={runCalendarSmoke}
-          runRealCalendarSmoke={runRealCalendarSmoke}
-        />
-      </View>
-
-      <View style={styles.capabilityGrid}>
         <ServerSection
           isDark={isDark}
           serverConnected={serverConnected}
           checkConnection={checkConnection}
         />
+      </View>
 
+      <View style={styles.capabilityGrid}>
         <FeaturesSection
           isDark={isDark}
           preferences={preferences}
           updatePreferences={updatePreferences}
         />
       </View>
+
+      <AdvancedDiagnosticsSection
+        isDark={isDark}
+        expanded={diagnosticsExpanded}
+        setExpanded={setDiagnosticsExpanded}
+        smokeRecording={smokeRecording}
+        smokeRunning={smokeRunning}
+        smokeResult={smokeResult}
+        smokeError={smokeError}
+        speakerVerifyRecording={speakerVerifyRecording}
+        speakerVerifyRunning={speakerVerifyRunning}
+        speakerVerifyResult={speakerVerifyResult}
+        speakerVerifyError={speakerVerifyError}
+        kwsSmokeRunning={kwsSmokeRunning}
+        kwsSmokeResult={kwsSmokeResult}
+        kwsSmokeError={kwsSmokeError}
+        vadSmokeRunning={vadSmokeRunning}
+        vadSmokeResult={vadSmokeResult}
+        vadSmokeError={vadSmokeError}
+        visualSmokeRunning={visualSmokeRunning}
+        visualSmokeResult={visualSmokeResult}
+        visualSmokeError={visualSmokeError}
+        calendarSmokeRunning={calendarSmokeRunning}
+        calendarSmokeResult={calendarSmokeResult}
+        calendarSmokeError={calendarSmokeError}
+        startVoiceSmoke={startVoiceSmoke}
+        finishVoiceSmoke={finishVoiceSmoke}
+        runSpeakerVerify={runSpeakerVerify}
+        runKwsSmoke={runKwsSmoke}
+        runVadSmoke={runVadSmoke}
+        runVisualSmoke={runVisualSmoke}
+        runCalendarSmoke={runCalendarSmoke}
+        runRealCalendarSmoke={runRealCalendarSmoke}
+        disabled={enrolling || savingEnrollment}
+        modelStatus={modelStatus}
+      />
 
         {/* Version */}
         <View style={styles.versionContainer}>
@@ -1013,46 +1247,26 @@ function ProfileSection({
   isDark: _isDark,
   name,
   voiceEnrolled,
+  speakerSummary,
   enrolling,
   savingEnrollment,
   enrollmentError,
-  smokeRecording,
-  smokeRunning,
-  smokeResult,
-  smokeError,
-  speakerVerifyRecording,
-  speakerVerifyRunning,
-  speakerVerifyResult,
-  speakerVerifyError,
   startEnrollment,
   finishEnrollment,
   clearVoiceEnrollment,
-  startVoiceSmoke,
-  finishVoiceSmoke,
-  runSpeakerVerify,
 }: {
   isDark: boolean;
   name: string;
   voiceEnrolled: boolean;
+  speakerSummary: SpeakerEnrollmentSummaryState | null;
   enrolling: boolean;
   savingEnrollment: boolean;
   enrollmentError: string | null;
-  smokeRecording: boolean;
-  smokeRunning: boolean;
-  smokeResult: string | null;
-  smokeError: string | null;
-  speakerVerifyRecording: boolean;
-  speakerVerifyRunning: boolean;
-  speakerVerifyResult: string | null;
-  speakerVerifyError: string | null;
   startEnrollment: () => void;
   finishEnrollment: () => void;
   clearVoiceEnrollment: () => void;
-  startVoiceSmoke: () => void;
-  finishVoiceSmoke: () => void;
-  runSpeakerVerify: () => void;
 }) {
-  const disabled = smokeRunning || speakerVerifyRunning || enrolling || savingEnrollment;
+  const disabled = enrolling || savingEnrollment;
 
   return (
     <View style={styles.section}>
@@ -1068,6 +1282,12 @@ function ProfileSection({
             {voiceEnrolled ? "已注册" : "未注册"}
           </Text>
         </View>
+        <View style={styles.row}>
+          <Text style={styles.label}>样本</Text>
+          <Text style={styles.value}>
+            {speakerSummary ? `${speakerSummary.sampleCount}/${speakerSummary.templateLimit}` : "--"}
+          </Text>
+        </View>
         <Pressable
           style={[
             styles.enrollButton,
@@ -1079,7 +1299,13 @@ function ProfileSection({
           disabled={savingEnrollment}
         >
           <Text style={styles.enrollButtonText}>
-            {savingEnrollment ? "保存中..." : enrolling ? "松开完成" : "按住录入本次会话声纹"}
+            {savingEnrollment
+              ? "保存中..."
+              : enrolling
+                ? "松开完成"
+                : voiceEnrolled
+                  ? "按住追加声纹样本"
+                  : "按住录入声纹"}
           </Text>
         </Pressable>
         <Pressable
@@ -1096,39 +1322,6 @@ function ProfileSection({
           </Text>
         </Pressable>
         {enrollmentError ? <Text style={styles.errorText}>{enrollmentError}</Text> : null}
-        <Pressable
-          style={[styles.checkButton, disabled && styles.disabledButton]}
-          onPressIn={startVoiceSmoke}
-          onPressOut={finishVoiceSmoke}
-          disabled={disabled}
-        >
-          <Text style={styles.checkButtonText}>
-            {smokeRunning
-              ? "诊断中..."
-              : smokeRecording
-              ? "松开运行语音诊断"
-              : "按住测试声纹 + STT"}
-          </Text>
-        </Pressable>
-        {smokeResult ? <Text style={styles.smokeResultText}>{smokeResult}</Text> : null}
-        {smokeError ? <Text style={styles.errorText}>{smokeError}</Text> : null}
-        <Pressable
-          style={[styles.checkButton, disabled && styles.disabledButton]}
-          onPress={runSpeakerVerify}
-          disabled={disabled}
-        >
-          <Text style={styles.checkButtonText}>
-            {speakerVerifyRunning
-              ? "验证中..."
-              : speakerVerifyRecording
-              ? "录音中..."
-              : "验证已注册声纹"}
-          </Text>
-        </Pressable>
-        {speakerVerifyResult ? (
-          <Text style={styles.smokeResultText}>{speakerVerifyResult}</Text>
-        ) : null}
-        {speakerVerifyError ? <Text style={styles.errorText}>{speakerVerifyError}</Text> : null}
       </View>
     </View>
   );
@@ -1141,16 +1334,8 @@ function VoiceModelsSection({
   downloadingModels,
   downloadProgress,
   modelError,
-  kwsSmokeRunning,
-  kwsSmokeResult,
-  kwsSmokeError,
-  vadSmokeRunning,
-  vadSmokeResult,
-  vadSmokeError,
   checkSherpaModels,
   downloadSherpaModels,
-  runKwsSmoke,
-  runVadSmoke,
 }: {
   isDark: boolean;
   modelStatus: SherpaModelStatus | null;
@@ -1158,16 +1343,8 @@ function VoiceModelsSection({
   downloadingModels: boolean;
   downloadProgress: SherpaModelDownloadProgress | null;
   modelError: string | null;
-  kwsSmokeRunning: boolean;
-  kwsSmokeResult: string | null;
-  kwsSmokeError: string | null;
-  vadSmokeRunning: boolean;
-  vadSmokeResult: string | null;
-  vadSmokeError: string | null;
   checkSherpaModels: () => void;
   downloadSherpaModels: () => void;
-  runKwsSmoke: () => void;
-  runVadSmoke: () => void;
 }) {
   const hasMissingModels = modelStatus
     ? !modelStatus.streamingAsr.ready ||
@@ -1176,7 +1353,6 @@ function VoiceModelsSection({
       !modelStatus.speaker.ready ||
       !modelStatus.vad.ready
     : false;
-  const vadUnavailable = !modelStatus?.vad.ready;
   const progressPercent = downloadProgress
     ? Math.round(downloadProgress.progress * 100)
     : 0;
@@ -1232,31 +1408,90 @@ function VoiceModelsSection({
             </Text>
           </Pressable>
         ) : null}
+      </View>
+    </View>
+  );
+}
+
+function RobotSection({
+  isDark: _isDark,
+  robotState,
+  scanRobots,
+  connectRobot,
+  forgetRobot,
+}: {
+  isDark: boolean;
+  robotState: RobotSettingsState;
+  scanRobots: () => void;
+  connectRobot: (candidate: LooiRobotCandidate) => void;
+  forgetRobot: () => void;
+}) {
+  const busy = robotState.scanning || Boolean(robotState.connectingId);
+  const savedName = robotState.saved?.name ?? "未选择";
+
+  return (
+    <View style={styles.section}>
+      <SectionTitle isDark={_isDark}>LOOI 机器人</SectionTitle>
+      <View style={styles.card}>
+        <View style={styles.row}>
+          <Text style={styles.label}>已选机器人</Text>
+          <Text style={[styles.value, robotState.saved ? styles.okText : styles.warnText]}>
+            {savedName}
+          </Text>
+        </View>
+        <View style={styles.row}>
+          <Text style={styles.label}>连接</Text>
+          <Text style={[styles.value, robotState.connected ? styles.okText : styles.warnText]}>
+            {robotState.connected ? "已握手" : "未连接"}
+          </Text>
+        </View>
         <Pressable
-          style={[
-            styles.checkButton,
-            (kwsSmokeRunning || !modelStatus?.kws.ready) && styles.disabledButton,
-          ]}
-          onPress={runKwsSmoke}
-          disabled={kwsSmokeRunning || !modelStatus?.kws.ready}
+          style={[styles.checkButton, busy && styles.disabledButton]}
+          onPress={scanRobots}
+          disabled={busy}
         >
           <Text style={styles.checkButtonText}>
-            {kwsSmokeRunning ? "诊断中..." : "测试唤醒词音频"}
+            {robotState.scanning ? "搜索中..." : "搜索 / 重试"}
           </Text>
         </Pressable>
-        {kwsSmokeResult ? <Text style={styles.smokeResultText}>{kwsSmokeResult}</Text> : null}
-        {kwsSmokeError ? <Text style={styles.errorText}>{kwsSmokeError}</Text> : null}
-        <Pressable
-          style={[styles.checkButton, (vadSmokeRunning || vadUnavailable) && styles.disabledButton]}
-          onPress={runVadSmoke}
-          disabled={vadSmokeRunning || vadUnavailable}
-        >
-          <Text style={styles.checkButtonText}>
-            {vadSmokeRunning ? "诊断中..." : "测试 VAD 端点检测"}
-          </Text>
-        </Pressable>
-        {vadSmokeResult ? <Text style={styles.smokeResultText}>{vadSmokeResult}</Text> : null}
-        {vadSmokeError ? <Text style={styles.errorText}>{vadSmokeError}</Text> : null}
+        {robotState.candidates.length > 0 ? (
+          <View style={styles.robotList}>
+            {robotState.candidates.map((candidate) => {
+              const connecting = robotState.connectingId === candidate.id;
+              return (
+                <Pressable
+                  key={candidate.id}
+                  style={[
+                    styles.robotCandidate,
+                    candidate.selected && styles.robotCandidateSelected,
+                    busy && !connecting && styles.disabledButton,
+                  ]}
+                  onPress={() => connectRobot(candidate)}
+                  disabled={busy && !connecting}
+                >
+                  <View style={styles.robotCandidateText}>
+                    <Text style={styles.value}>{candidate.name}</Text>
+                    <Text style={styles.label}>{candidate.id}</Text>
+                  </View>
+                  <Text style={[styles.value, candidate.selected ? styles.okText : styles.warnText]}>
+                    {connecting ? "连接中" : candidate.selected ? "已选" : candidate.rssi ?? "--"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+        {robotState.saved ? (
+          <Pressable
+            style={[styles.checkButton, styles.dangerOutlineButton, busy && styles.disabledButton]}
+            onPress={forgetRobot}
+            disabled={busy}
+          >
+            <Text style={[styles.checkButtonText, styles.dangerButtonText]}>清除选择</Text>
+          </Pressable>
+        ) : null}
+        {robotState.result ? <Text style={styles.smokeResultText}>{robotState.result}</Text> : null}
+        {robotState.error ? <Text style={styles.errorText}>{robotState.error}</Text> : null}
       </View>
     </View>
   );
@@ -1297,79 +1532,185 @@ function ServerSection({
   );
 }
 
-function VisualMemorySection({
+function AdvancedDiagnosticsSection({
   isDark: _isDark,
-  running,
-  result,
-  error,
+  expanded,
+  setExpanded,
+  smokeRecording,
+  smokeRunning,
+  smokeResult,
+  smokeError,
+  speakerVerifyRecording,
+  speakerVerifyRunning,
+  speakerVerifyResult,
+  speakerVerifyError,
+  kwsSmokeRunning,
+  kwsSmokeResult,
+  kwsSmokeError,
+  vadSmokeRunning,
+  vadSmokeResult,
+  vadSmokeError,
+  visualSmokeRunning,
+  visualSmokeResult,
+  visualSmokeError,
+  calendarSmokeRunning,
+  calendarSmokeResult,
+  calendarSmokeError,
+  startVoiceSmoke,
+  finishVoiceSmoke,
+  runSpeakerVerify,
+  runKwsSmoke,
+  runVadSmoke,
   runVisualSmoke,
-}: {
-  isDark: boolean;
-  running: boolean;
-  result: string | null;
-  error: string | null;
-  runVisualSmoke: () => void;
-}) {
-  return (
-    <View style={styles.section}>
-      <SectionTitle isDark={_isDark}>视觉记忆</SectionTitle>
-      <View style={styles.card}>
-        <Pressable
-          style={[styles.checkButton, running && styles.disabledButton]}
-          onPress={runVisualSmoke}
-          disabled={running}
-        >
-          <Text style={styles.checkButtonText}>
-            {running ? "诊断中..." : "测试视觉记忆 + 证据图"}
-          </Text>
-        </Pressable>
-        {result ? <Text style={styles.smokeResultText}>{result}</Text> : null}
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      </View>
-    </View>
-  );
-}
-
-function CalendarReminderSection({
-  isDark: _isDark,
-  running,
-  result,
-  error,
   runCalendarSmoke,
   runRealCalendarSmoke,
+  disabled,
+  modelStatus,
 }: {
   isDark: boolean;
-  running: boolean;
-  result: string | null;
-  error: string | null;
+  expanded: boolean;
+  setExpanded: (expanded: boolean) => void;
+  smokeRecording: boolean;
+  smokeRunning: boolean;
+  smokeResult: string | null;
+  smokeError: string | null;
+  speakerVerifyRecording: boolean;
+  speakerVerifyRunning: boolean;
+  speakerVerifyResult: string | null;
+  speakerVerifyError: string | null;
+  kwsSmokeRunning: boolean;
+  kwsSmokeResult: string | null;
+  kwsSmokeError: string | null;
+  vadSmokeRunning: boolean;
+  vadSmokeResult: string | null;
+  vadSmokeError: string | null;
+  visualSmokeRunning: boolean;
+  visualSmokeResult: string | null;
+  visualSmokeError: string | null;
+  calendarSmokeRunning: boolean;
+  calendarSmokeResult: string | null;
+  calendarSmokeError: string | null;
+  startVoiceSmoke: () => void;
+  finishVoiceSmoke: () => void;
+  runSpeakerVerify: () => void;
+  runKwsSmoke: () => void;
+  runVadSmoke: () => void;
+  runVisualSmoke: () => void;
   runCalendarSmoke: () => void;
   runRealCalendarSmoke: () => void;
+  disabled: boolean;
+  modelStatus: SherpaModelStatus | null;
 }) {
+  const voiceDisabled = disabled || smokeRunning || speakerVerifyRunning;
   return (
-    <View style={styles.section}>
-      <SectionTitle isDark={_isDark}>日历提醒</SectionTitle>
-      <View style={styles.card}>
-        <Pressable
-          style={[styles.checkButton, running && styles.disabledButton]}
-          onPress={runCalendarSmoke}
-          disabled={running}
-        >
-          <Text style={styles.checkButtonText}>
-            {running ? "诊断中..." : "测试通知 + 语音提醒"}
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.checkButton, running && styles.disabledButton]}
-          onPress={runRealCalendarSmoke}
-          disabled={running}
-        >
-          <Text style={styles.checkButtonText}>
-            {running ? "诊断中..." : "创建真实日历事件测试"}
-          </Text>
-        </Pressable>
-        {result ? <Text style={styles.smokeResultText}>{result}</Text> : null}
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      </View>
+    <View style={styles.sectionWide}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => setExpanded(!expanded)}
+        style={styles.diagnosticsHeader}
+      >
+        <Text style={styles.sectionTitle}>高级诊断</Text>
+        <Text style={styles.value}>{expanded ? "收起" : "展开"}</Text>
+      </Pressable>
+      {expanded ? (
+        <View style={styles.card}>
+          <Pressable
+            style={[styles.checkButton, voiceDisabled && styles.disabledButton]}
+            onPressIn={startVoiceSmoke}
+            onPressOut={finishVoiceSmoke}
+            disabled={voiceDisabled}
+          >
+            <Text style={styles.checkButtonText}>
+              {smokeRunning
+                ? "诊断中..."
+                : smokeRecording
+                  ? "松开运行语音诊断"
+                  : "按住测试声纹 + STT"}
+            </Text>
+          </Pressable>
+          {smokeResult ? <Text style={styles.smokeResultText}>{smokeResult}</Text> : null}
+          {smokeError ? <Text style={styles.errorText}>{smokeError}</Text> : null}
+
+          <Pressable
+            style={[styles.checkButton, voiceDisabled && styles.disabledButton]}
+            onPress={runSpeakerVerify}
+            disabled={voiceDisabled}
+          >
+            <Text style={styles.checkButtonText}>
+              {speakerVerifyRunning
+                ? "验证中..."
+                : speakerVerifyRecording
+                  ? "录音中..."
+                  : "验证已注册声纹"}
+            </Text>
+          </Pressable>
+          {speakerVerifyResult ? <Text style={styles.smokeResultText}>{speakerVerifyResult}</Text> : null}
+          {speakerVerifyError ? <Text style={styles.errorText}>{speakerVerifyError}</Text> : null}
+
+          <Pressable
+            style={[
+              styles.checkButton,
+              (kwsSmokeRunning || !modelStatus?.kws.ready) && styles.disabledButton,
+            ]}
+            onPress={runKwsSmoke}
+            disabled={kwsSmokeRunning || !modelStatus?.kws.ready}
+          >
+            <Text style={styles.checkButtonText}>
+              {kwsSmokeRunning ? "诊断中..." : "测试唤醒词音频"}
+            </Text>
+          </Pressable>
+          {kwsSmokeResult ? <Text style={styles.smokeResultText}>{kwsSmokeResult}</Text> : null}
+          {kwsSmokeError ? <Text style={styles.errorText}>{kwsSmokeError}</Text> : null}
+
+          <Pressable
+            style={[
+              styles.checkButton,
+              (vadSmokeRunning || !modelStatus?.vad.ready) && styles.disabledButton,
+            ]}
+            onPress={runVadSmoke}
+            disabled={vadSmokeRunning || !modelStatus?.vad.ready}
+          >
+            <Text style={styles.checkButtonText}>
+              {vadSmokeRunning ? "诊断中..." : "测试 VAD 端点检测"}
+            </Text>
+          </Pressable>
+          {vadSmokeResult ? <Text style={styles.smokeResultText}>{vadSmokeResult}</Text> : null}
+          {vadSmokeError ? <Text style={styles.errorText}>{vadSmokeError}</Text> : null}
+
+          <Pressable
+            style={[styles.checkButton, visualSmokeRunning && styles.disabledButton]}
+            onPress={runVisualSmoke}
+            disabled={visualSmokeRunning}
+          >
+            <Text style={styles.checkButtonText}>
+              {visualSmokeRunning ? "诊断中..." : "测试视觉记忆 + 证据图"}
+            </Text>
+          </Pressable>
+          {visualSmokeResult ? <Text style={styles.smokeResultText}>{visualSmokeResult}</Text> : null}
+          {visualSmokeError ? <Text style={styles.errorText}>{visualSmokeError}</Text> : null}
+
+          <Pressable
+            style={[styles.checkButton, calendarSmokeRunning && styles.disabledButton]}
+            onPress={runCalendarSmoke}
+            disabled={calendarSmokeRunning}
+          >
+            <Text style={styles.checkButtonText}>
+              {calendarSmokeRunning ? "诊断中..." : "测试通知 + 语音提醒"}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.checkButton, calendarSmokeRunning && styles.disabledButton]}
+            onPress={runRealCalendarSmoke}
+            disabled={calendarSmokeRunning}
+          >
+            <Text style={styles.checkButtonText}>
+              {calendarSmokeRunning ? "诊断中..." : "创建真实日历事件测试"}
+            </Text>
+          </Pressable>
+          {calendarSmokeResult ? <Text style={styles.smokeResultText}>{calendarSmokeResult}</Text> : null}
+          {calendarSmokeError ? <Text style={styles.errorText}>{calendarSmokeError}</Text> : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1406,6 +1747,35 @@ async function runKwsDiagnosticSamples(
     acceptSamples,
     (result) => Boolean(result.detected)
   );
+}
+
+function isAllVoiceModelsReady(status: SherpaModelStatus): boolean {
+  return Boolean(
+    status.streamingAsr.ready &&
+      status.punctuation.ready &&
+      status.kws.ready &&
+      status.speaker.ready &&
+      status.vad.ready
+  );
+}
+
+function buildSettingsEnrollmentQuality(samples: number[]): {
+  ok: boolean;
+  durationMs: number;
+  energyMean: number;
+  reason?: "too-short" | "too-quiet";
+} {
+  const durationMs = Math.round((samples.length / 16000) * 1000);
+  const energyMean = samples.length
+    ? samples.reduce((sum, sample) => sum + Math.abs(sample), 0) / samples.length
+    : 0;
+  if (durationMs < 1800) {
+    return { ok: false, durationMs, energyMean, reason: "too-short" };
+  }
+  if (energyMean < 0.008) {
+    return { ok: false, durationMs, energyMean, reason: "too-quiet" };
+  }
+  return { ok: true, durationMs, energyMean };
 }
 
 async function getAudioFileSummary(audioUri: string): Promise<string> {
@@ -1543,10 +1913,25 @@ const styles = StyleSheet.create({
     flexBasis: 320,
     marginBottom: 14,
   },
+  sectionWide: {
+    marginBottom: 14,
+  },
   sectionTitle: {
     color: looiTheme.text,
     fontSize: 18,
     fontWeight: "700",
+    marginBottom: 8,
+  },
+  diagnosticsHeader: {
+    minHeight: 54,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: looiTheme.line,
+    backgroundColor: looiTheme.surface,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 8,
   },
   card: {
@@ -1670,6 +2055,30 @@ const styles = StyleSheet.create({
     borderColor: "rgba(77, 231, 180, 0.24)",
     backgroundColor: "rgba(77, 231, 180, 0.07)",
     padding: 10,
+  },
+  robotList: {
+    gap: 8,
+  },
+  robotCandidate: {
+    minHeight: 58,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: looiTheme.line,
+    backgroundColor: "rgba(40, 213, 255, 0.06)",
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  robotCandidateSelected: {
+    borderColor: looiTheme.lineActive,
+    backgroundColor: "rgba(77, 231, 180, 0.08)",
+  },
+  robotCandidateText: {
+    flex: 1,
+    gap: 4,
   },
   versionContainer: { alignItems: "center", paddingVertical: 24 },
   versionText: {

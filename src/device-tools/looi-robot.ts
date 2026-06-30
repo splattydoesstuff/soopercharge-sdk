@@ -1,15 +1,24 @@
-import { LooiRobot, type LooiMoveDirection, type LooiTransport } from "@sourcebug/looi-sdk";
+import {
+  LooiRobot,
+  type LooiConnectOptions,
+  type LooiMoveDirection,
+  type LooiTransport,
+} from "@sourcebug/looi-sdk";
 
 type LooiRuntimeState = {
   robot: LooiRobot | null;
   transport: LooiTransport | null;
   connected: boolean;
+  connecting: Promise<LooiRobot> | null;
+  lastError: string | null;
 };
 
 const state: LooiRuntimeState = {
   robot: null,
   transport: null,
   connected: false,
+  connecting: null,
+  lastError: null,
 };
 
 /**
@@ -23,17 +32,58 @@ export function configureLooiRobotTransport(transport: LooiTransport): void {
   state.transport = transport;
   state.robot = new LooiRobot(transport);
   state.connected = false;
+  state.connecting = null;
+  state.lastError = null;
 }
 
-async function getRobot(): Promise<LooiRobot> {
+export async function connectLooiRobot(options: LooiConnectOptions = {}): Promise<{
+  ok: true;
+  connected: true;
+}> {
+  await getRobot(options);
+  return { ok: true, connected: true };
+}
+
+export async function disconnectLooiRobot(): Promise<void> {
+  state.connecting = null;
+  state.connected = false;
+  state.lastError = null;
+  await state.robot?.disconnect();
+}
+
+export function getLooiRobotRuntimeState() {
+  return {
+    configured: Boolean(state.robot),
+    connected: state.connected,
+    connecting: Boolean(state.connecting),
+    lastError: state.lastError,
+  };
+}
+
+async function getRobot(options: LooiConnectOptions = {}): Promise<LooiRobot> {
   if (!state.robot) {
     throw new Error("LOOI transport is not configured. Bind a LooiTransport before using robot tools.");
   }
-  if (!state.connected) {
-    await state.robot.connect();
-    state.connected = true;
+  if (state.connected) {
+    return state.robot;
   }
-  return state.robot;
+  if (!state.connecting) {
+    state.connecting = state.robot.connect(options)
+      .then(() => {
+        state.connected = true;
+        state.lastError = null;
+        return state.robot as LooiRobot;
+      })
+      .catch((error) => {
+        state.connected = false;
+        state.lastError = error instanceof Error ? error.message : String(error);
+        throw error;
+      })
+      .finally(() => {
+        state.connecting = null;
+      });
+  }
+  return state.connecting;
 }
 
 export async function moveLooi(direction: string, durationMs = 800, speed = 50) {

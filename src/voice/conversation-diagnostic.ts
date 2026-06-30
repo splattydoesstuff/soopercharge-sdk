@@ -51,11 +51,13 @@ export async function runConversationDiagnosticSmoke(): Promise<ConversationDiag
     const intent = await llmService.classifyIntent(transcript);
     const sentenceQueue = new DiagnosticSentenceQueue();
     let sentenceBuffer = "";
+    let spokenSubtitleText = "";
     const ttsPromise = ttsService.speakSentences(sentenceQueue, {
-      onSentenceStart: () => {
+      onSentenceStart: (sentence) => {
         firstTtsStartMs ??= Date.now() - startedAt;
         useUserStore.getState().setVoiceState("speaking");
         useConversationStore.getState().setSpeaking(true);
+        spokenSubtitleText = appendDiagnosticSubtitle(spokenSubtitleText, sentence);
       },
     });
 
@@ -72,7 +74,6 @@ export async function runConversationDiagnosticSmoke(): Promise<ConversationDiag
             tokenCount += 1;
             response += event.text;
             sentenceBuffer += event.text;
-            useConversationStore.getState().appendStreamingText(event.text);
             sentenceBuffer = flushCompleteDiagnosticSentences(sentenceBuffer, sentenceQueue);
           } else if (event.type === "done") {
             streamDoneMs = Date.now() - startedAt;
@@ -133,6 +134,12 @@ export async function runConversationDiagnosticSmoke(): Promise<ConversationDiag
     useConversationStore.getState().setSpeaking(false);
     await ttsService.stop().catch(() => undefined);
   }
+}
+
+function appendDiagnosticSubtitle(currentText: string, sentence: string): string {
+  const nextText = `${currentText}${sentence}`;
+  useConversationStore.getState().setStreamingText(nextText);
+  return nextText;
 }
 
 function buildSummary(input: {

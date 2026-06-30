@@ -33,7 +33,7 @@ export class TTSService {
   /**
    * Synthesize text to speech and play it
    */
-  async speak(options: TTSOptions): Promise<void> {
+  async speak(options: TTSOptions & { onPlaybackStart?: () => void }): Promise<void> {
     const { text, voiceId = "male-qn-qingse", speed = 1.0 } = options;
 
     if (!text.trim()) return;
@@ -110,6 +110,7 @@ export class TTSService {
       this.player = player;
       this.isPlaying = true;
       player.play();
+      options.onPlaybackStart?.();
 
       // Wait for playback to finish
       return new Promise<void>((resolve) => {
@@ -152,11 +153,11 @@ export class TTSService {
       const text = sentence.trim();
       if (!text) continue;
 
-      options.onSentenceStart?.(text);
       await this.speak({
         text,
         voiceId: options.voiceId,
         speed: options.speed,
+        onPlaybackStart: () => options.onSentenceStart?.(text),
       });
       options.onSentenceEnd?.(text);
     }

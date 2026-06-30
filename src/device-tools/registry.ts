@@ -4,8 +4,17 @@ import { moveLooi, setLooiHead, setLooiLight } from "./looi-robot";
 import type { DeviceToolDefinition, DeviceToolExecutor } from "./types";
 
 const DEVICE_ID = `${Platform.OS}-looi-device`;
+const DEVICE_TOOL_PROTOCOL_VERSION = 1;
+const RECONNECT_DELAY_MS = 2_000;
+const WEBSOCKET_OPEN = 1;
+const WEBSOCKET_CONNECTING = 0;
 const executors = new Map<string, DeviceToolExecutor>();
-let polling = false;
+let socket: WebSocket | null = null;
+let connecting = false;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let stopped = false;
+const pendingOutboundMessages: Record<string, unknown>[] = [];
+const completedCallResults = new Map<string, Record<string, unknown>>();
 
 export function registerLocalDeviceTool(definition: DeviceToolDefinition, executor: DeviceToolExecutor): DeviceToolDefinition {
   executors.set(definition.name, executor);
@@ -60,39 +69,121 @@ export const builtinDeviceTools: DeviceToolDefinition[] = [
   }, async ({ direction }) => setLooiHead(String(direction))),
 ];
 
-export async function registerAndPollDeviceTools(serverUrl: string): Promise<void> {
-  await postJson(`${serverUrl}/api/device-tools/register`, { deviceId: DEVICE_ID, tools: builtinDeviceTools });
-  if (polling) return;
-  polling = true;
-  void pollLoop(serverUrl);
+export async function startDeviceToolsWebSocket(serverUrl: string): Promise<void> {
+  stopped = false;
+  connectDeviceToolsSocket(serverUrl);
 }
 
-async function pollLoop(serverUrl: string): Promise<void> {
-  while (polling) {
-    try {
-      const response = await fetch(`${serverUrl}/api/device-tools/poll?deviceId=${encodeURIComponent(DEVICE_ID)}`);
-      const payload = await response.json() as { calls?: Array<{ id: string; toolName: string; arguments: Record<string, unknown> }> };
-      for (const call of payload.calls ?? []) {
-        void executeAndReport(serverUrl, call);
-      }
-    } catch (error) {
-      console.warn("[DeviceTools] Poll failed", error);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+async function executeAndReport(call: { id: string; toolName: string; arguments: Record<string, unknown> }) {
+  const completed = completedCallResults.get(call.id);
+  if (completed) {
+    sendDeviceToolMessage(completed);
+    return;
   }
-}
 
-async function executeAndReport(serverUrl: string, call: { id: string; toolName: string; arguments: Record<string, unknown> }) {
   try {
     const executor = executors.get(call.toolName);
     if (!executor) throw new Error(`No executor for ${call.toolName}`);
     const result = await executor(call.arguments ?? {});
-    await postJson(`${serverUrl}/api/device-tools/result`, { callId: call.id, result });
+    rememberAndSendResult(call.id, { type: "tool.result", callId: call.id, result });
   } catch (error: any) {
-    await postJson(`${serverUrl}/api/device-tools/result`, { callId: call.id, error: error?.message ?? String(error) });
+    rememberAndSendResult(call.id, { type: "tool.result", callId: call.id, error: error?.message ?? String(error) });
   }
 }
 
-async function postJson(url: string, body: unknown) {
-  return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+function connectDeviceToolsSocket(serverUrl: string): void {
+  if (connecting || socket?.readyState === WEBSOCKET_OPEN || socket?.readyState === WEBSOCKET_CONNECTING) return;
+  connecting = true;
+  clearReconnectTimer();
+
+  const wsUrl = `${serverUrl.replace(/^http/, "ws")}/api/device-tools/ws`;
+  const nextSocket = new WebSocket(wsUrl);
+  socket = nextSocket;
+
+  nextSocket.onopen = () => {
+    connecting = false;
+    sendDeviceToolMessage({ type: "client.register", deviceId: DEVICE_ID, tools: builtinDeviceTools });
+    flushOutboundMessages();
+  };
+
+  nextSocket.onmessage = (event) => {
+    try {
+      handleServerMessage(JSON.parse(String(event.data)));
+    } catch (error) {
+      console.warn("[DeviceTools] Invalid WebSocket message", error);
+    }
+  };
+
+  nextSocket.onerror = (event) => {
+    console.warn("[DeviceTools] WebSocket error", event);
+  };
+
+  nextSocket.onclose = () => {
+    if (socket === nextSocket) socket = null;
+    connecting = false;
+    if (!stopped) {
+      reconnectTimer = setTimeout(() => connectDeviceToolsSocket(serverUrl), RECONNECT_DELAY_MS);
+    }
+  };
+}
+
+function handleServerMessage(message: any): void {
+  if (message?.version !== DEVICE_TOOL_PROTOCOL_VERSION) {
+    console.warn("[DeviceTools] Unsupported protocol version", message?.version);
+    return;
+  }
+
+  switch (message.type) {
+    case "server.hello":
+    case "server.ack":
+      return;
+    case "server.error":
+      console.warn("[DeviceTools] Server protocol error", message.error);
+      return;
+    case "tool.call":
+      void executeAndReport(message.call);
+      return;
+    default:
+      console.warn("[DeviceTools] Unknown server message", message.type);
+  }
+}
+
+function sendDeviceToolMessage(payload: Record<string, unknown>): void {
+  if (!socket || socket.readyState !== WEBSOCKET_OPEN) {
+    pendingOutboundMessages.push(payload);
+    return;
+  }
+
+  socket.send(JSON.stringify({
+    version: DEVICE_TOOL_PROTOCOL_VERSION,
+    messageId: createMessageId(),
+    ...payload,
+  }));
+}
+
+function rememberAndSendResult(callId: string, payload: Record<string, unknown>): void {
+  completedCallResults.set(callId, payload);
+  if (completedCallResults.size > 100) {
+    const oldestCallId = completedCallResults.keys().next().value;
+    if (oldestCallId) completedCallResults.delete(oldestCallId);
+  }
+  sendDeviceToolMessage(payload);
+}
+
+function flushOutboundMessages(): void {
+  while (pendingOutboundMessages.length > 0 && socket?.readyState === WEBSOCKET_OPEN) {
+    const payload = pendingOutboundMessages.shift();
+    if (payload) sendDeviceToolMessage(payload);
+  }
+}
+
+function createMessageId(): string {
+  const random = Math.random().toString(36).slice(2);
+  return `${Date.now().toString(36)}-${random}`;
+}
+
+function clearReconnectTimer(): void {
+  if (!reconnectTimer) return;
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
 }

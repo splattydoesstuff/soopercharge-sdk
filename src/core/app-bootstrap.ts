@@ -6,7 +6,7 @@ import { reminderScheduler } from "../reminder/reminder-scheduler";
 import { setupNotifications } from "../reminder/notification";
 import { useUserStore } from "../store/user";
 import { getConfiguredServerUrl } from "../server-api/client";
-import { registerAndPollDeviceTools } from "../device-tools/registry";
+import { startDeviceToolsWebSocket } from "../device-tools/registry";
 import {
   getLoadedSttModule,
   getLoadedTtsModule,
@@ -44,7 +44,10 @@ export async function bootstrapApp(): Promise<void> {
 
   await startRuntimePerceivers();
 
-  registerAndPollDeviceTools(getConfiguredServerUrl()).catch((error) => {
+  // Prewarm STT model so first wakeword doesn't pay 1.2s cold-start penalty
+  prewarmStreamingStt();
+
+  startDeviceToolsWebSocket(getConfiguredServerUrl()).catch((error) => {
     console.warn("[Bootstrap] Failed to register device tools:", error);
   });
 
@@ -77,7 +80,7 @@ export async function resumeAppRuntime(): Promise<void> {
   paused = false;
   await startRuntimePerceivers();
 
-  registerAndPollDeviceTools(getConfiguredServerUrl()).catch((error) => {
+  startDeviceToolsWebSocket(getConfiguredServerUrl()).catch((error) => {
     console.warn("[Bootstrap] Failed to register device tools:", error);
   });
   console.log("[Bootstrap] App runtime resumed");
@@ -89,6 +92,17 @@ async function startRuntimePerceivers(): Promise<void> {
   } catch (error) {
     console.warn("[Bootstrap] Failed to start voice perceiver:", error);
   }
+}
+
+function prewarmStreamingStt(): void {
+  void import("../voice/streaming-stt")
+    .then(({ streamingSttService }) => streamingSttService.createStream())
+    .then(() => {
+      console.log("[Bootstrap] STT stream prewarmed");
+    })
+    .catch((error) => {
+      console.warn("[Bootstrap] STT prewarm failed (will retry on first use):", error);
+    });
 }
 
 function runOptInVadSmokeOnBoot(): void {

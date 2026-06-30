@@ -19,10 +19,13 @@ import { cameraPerceiver } from "./camera-perceiver";
 const LISTENING_START_TIMEOUT_MS = 5000;
 const MAX_LISTENING_DURATION_MS = 30_000;
 const ENDPOINT_WAIT_MS = 2000;
+const WAKEWORD_AUDIO_PREROLL_MS = 1000;
 const SPEAKER_SAMPLE_RATE = 16000;
 const SPEAKER_SEGMENT_PADDING_SAMPLES = Math.round(SPEAKER_SAMPLE_RATE * 0.25);
 const SENTENCE_BREAK_RE = /[。！？!?\n、]/;
 const MAX_STREAMING_SENTENCE_LENGTH = 20;
+const WAKEWORD_TRANSCRIPT_PREFIX_RE =
+  /^(?:嘿|嗨|黑)?(?:魔戈|魔哥|摩哥|moge|hey\s*moge)[，,。.!！?？\s]*/i;
 
 type GenerateResponseResult = {
   response: string;
@@ -181,6 +184,7 @@ export class VoicePerceiver extends BasePerceiver {
     }
 
     voiceAcceptanceTrace.start();
+    const t0 = Date.now();
     console.log("[VoicePerceiver] Listening started");
     // Step 1: Start listening. Owner verification runs against the same sample buffer
     // before accepting the transcript, so commands still require speaker verification.
@@ -190,22 +194,24 @@ export class VoicePerceiver extends BasePerceiver {
     conversationStore.setStreamingText("");
     conversationStore.setOverlayVisible(true);
 
-    try {
-      const session = await sessionService.touch();
-      conversationStore.setActiveSession(session.sessionId);
+    // Fire-and-forget: session ID doesn't affect recording/ASR,
+    // only message attribution. Update store when result arrives.
+    sessionService.touch().then((session) => {
+      useConversationStore.getState().setActiveSession(session.sessionId);
       voiceAcceptanceTrace.mark("session", {
         sessionId: session.sessionId,
         isNew: session.isNew,
       });
-      console.log("[VoicePerceiver] Session touched", {
+      console.log("[VoicePerceiver] Session touched (async)", {
         sessionId: session.sessionId,
         isNew: session.isNew,
       });
-    } catch (error) {
-      console.warn("[VoicePerceiver] Session touch failed; continuing locally:", error);
-    }
+    }).catch((error) => {
+      console.warn("[VoicePerceiver] Session touch failed:", error);
+    });
 
-    const startListeningPromise = this.startStreamingForListening();
+    const t1 = Date.now();
+    const startListeningPromise = this.startStreamingForListening(t0, t1);
     this.startListeningPromise = startListeningPromise;
 
     try {
@@ -294,9 +300,9 @@ export class VoicePerceiver extends BasePerceiver {
         return;
       }
 
-      let transcript = rawTranscript;
+      let transcript = this.stripWakewordPrefix(rawTranscript);
       try {
-        transcript = await punctuationService.addPunctuation(rawTranscript);
+        transcript = await punctuationService.addPunctuation(transcript);
       } catch (error) {
         console.warn("[VoicePerceiver] Punctuation failed; using raw transcript:", error);
       }
@@ -410,8 +416,13 @@ export class VoicePerceiver extends BasePerceiver {
       conversationStore.setSpeaking(true);
 
       if (userStore.preferences.ttsEnabled && !audioHandled) {
-        voiceAcceptanceTrace.mark("first-tts", { mode: "fallback" });
-        await ttsService.speak({ text: response });
+        await ttsService.speak({
+          text: response,
+          onPlaybackStart: () => {
+            voiceAcceptanceTrace.mark("first-tts", { mode: "fallback" });
+            conversationStore.setStreamingText(response);
+          },
+        });
       }
     } catch (error) {
       console.warn("[VoicePerceiver] Processing stopped:", error);
@@ -453,14 +464,16 @@ export class VoicePerceiver extends BasePerceiver {
     if (llmService.generateResponseStream) {
       let streamedText = "";
       let sentenceBuffer = "";
+      let spokenSubtitleText = "";
       const sentenceQueue = new AsyncSentenceQueue();
       const shouldSpeak = useUserStore.getState().preferences.ttsEnabled;
       const ttsPromise = shouldSpeak
         ? ttsService.speakSentences(sentenceQueue, {
-            onSentenceStart: () => {
+            onSentenceStart: (sentence) => {
               voiceAcceptanceTrace.mark("first-tts", { mode: "stream" });
               useUserStore.getState().setVoiceState("speaking");
               useConversationStore.getState().setSpeaking(true);
+              spokenSubtitleText = this.appendAssistantSubtitle(spokenSubtitleText, sentence);
             },
           })
         : Promise.resolve();
@@ -476,7 +489,9 @@ export class VoicePerceiver extends BasePerceiver {
             voiceAcceptanceTrace.mark("first-token");
             streamedText += event.text;
             sentenceBuffer += event.text;
-            useConversationStore.getState().appendStreamingText(event.text);
+            if (!shouldSpeak) {
+              useConversationStore.getState().appendStreamingText(event.text);
+            }
             sentenceBuffer = this.flushCompleteSentences(sentenceBuffer, sentenceQueue);
           } else if (event.type === "done") {
             const fullText = event.fullText || streamedText;
@@ -522,8 +537,16 @@ export class VoicePerceiver extends BasePerceiver {
     }
 
     const response = await llmService.generateResponse(intent, context);
-    useConversationStore.getState().setStreamingText(response);
+    if (!useUserStore.getState().preferences.ttsEnabled) {
+      useConversationStore.getState().setStreamingText(response);
+    }
     return { response, audioHandled: false };
+  }
+
+  private appendAssistantSubtitle(currentText: string, sentence: string): string {
+    const nextText = `${currentText}${sentence}`;
+    useConversationStore.getState().setStreamingText(nextText);
+    return nextText;
   }
 
   private flushCompleteSentences(buffer: string, queue: AsyncSentenceQueue): string {
@@ -547,13 +570,18 @@ export class VoicePerceiver extends BasePerceiver {
     return text.length >= MAX_STREAMING_SENTENCE_LENGTH ? text.length - 1 : -1;
   }
 
-  private async startStreamingForListening(): Promise<void> {
+  private stripWakewordPrefix(transcript: string): string {
+    const normalized = transcript.trim();
+    const stripped = normalized.replace(WAKEWORD_TRANSCRIPT_PREFIX_RE, "").trim();
+    return stripped || normalized;
+  }
+
+  private async startStreamingForListening(t0?: number, t1?: number): Promise<void> {
     const userStore = useUserStore.getState();
     const conversationStore = useConversationStore.getState();
 
     try {
-      await kwsAudioFeeder.stop();
-      await this.startListeningStreaming();
+      await this.startListeningStreaming(t0, t1);
       voiceAcceptanceTrace.mark("recording-started");
       voiceAcceptanceTrace.mark("streaming-listening-started");
       if (this.cancelListeningAfterStart) {
@@ -578,8 +606,29 @@ export class VoicePerceiver extends BasePerceiver {
     }
   }
 
-  private async startListeningStreaming(): Promise<void> {
-    await this.stopListeningStreaming({ resetAsr: true });
+  private async startListeningStreaming(t0?: number, t1?: number): Promise<void> {
+    const tBase = t0 ?? Date.now();
+
+    // Only run full stop if a previous streaming session is still active.
+    // On normal wakeword path, unsubStreamingSamples is null — skip the
+    // destructive stop that would wipe the ring buffer and restart the feeder.
+    if (this.unsubStreamingSamples) {
+      await this.stopListeningStreaming({ resetAsr: true });
+      console.log(`[VoicePerceiver][TIMING] stopListeningStreaming: ${Date.now() - tBase}ms`);
+    } else {
+      // Lightweight reset: clear timers and ASR state without touching the feeder
+      if (this.listeningTimeout) {
+        clearTimeout(this.listeningTimeout);
+        this.listeningTimeout = null;
+      }
+      if (this.endpointFinalizeTimeout) {
+        clearTimeout(this.endpointFinalizeTimeout);
+        this.endpointFinalizeTimeout = null;
+      }
+      await vadService.reset().catch(() => undefined);
+      await streamingSttService.resetStream().catch(() => undefined);
+    }
+
     this.vadHadSpeech = false;
     this.vadQueuedSamples = null;
     this.streamingQueuedSamples = null;
@@ -588,13 +637,14 @@ export class VoicePerceiver extends BasePerceiver {
     this.finalizedStreamingSegments = [];
     this.currentStreamingText = "";
 
-    try {
-      await vadService.start();
-    } catch (error) {
-      console.warn("[VoicePerceiver] VAD unavailable; using safety timeout only:", error);
-    }
-
-    await streamingSttService.createStream();
+    // Start VAD and STT in parallel — they are independent
+    await Promise.all([
+      vadService.start().catch((error) => {
+        console.warn("[VoicePerceiver] VAD unavailable; using safety timeout only:", error);
+      }),
+      streamingSttService.createStream(),
+    ]);
+    console.log(`[VoicePerceiver][TIMING] vad+stt parallel: ${Date.now() - tBase}ms`);
 
     this.unsubStreamingSamples = kwsAudioFeeder.subscribeSamples((samples, sampleRate) => {
       this.speechSamplesBuffer.push(...samples);
@@ -603,10 +653,25 @@ export class VoicePerceiver extends BasePerceiver {
     });
     kwsAudioFeeder.setWakewordFeedingEnabled(false);
 
-    try {
-      await kwsAudioFeeder.start();
-    } catch (error) {
-      console.warn("[VoicePerceiver] Failed to start VAD audio feeder:", error);
+    const prerollSamples = kwsAudioFeeder.getRecentSamples(WAKEWORD_AUDIO_PREROLL_MS);
+    console.log(`[VoicePerceiver][TIMING] preroll grabbed: ${Date.now() - tBase}ms, samples: ${prerollSamples.length} (${Math.round(prerollSamples.length / SPEAKER_SAMPLE_RATE * 1000)}ms audio)`);
+    if (prerollSamples.length > 0) {
+      voiceAcceptanceTrace.mark("audio-preroll", {
+        durationMs: Math.round((prerollSamples.length / SPEAKER_SAMPLE_RATE) * 1000),
+      });
+      this.speechSamplesBuffer.push(...prerollSamples);
+      this.enqueueVadSamples(prerollSamples, SPEAKER_SAMPLE_RATE);
+      this.enqueueStreamingSamples(prerollSamples, SPEAKER_SAMPLE_RATE);
+    }
+
+    // Feeder should already be running (it was feeding wakeword).
+    // Only start it if it somehow stopped.
+    if (!kwsAudioFeeder.isRunning) {
+      try {
+        await kwsAudioFeeder.start();
+      } catch (error) {
+        console.warn("[VoicePerceiver] Failed to start audio feeder:", error);
+      }
     }
 
     this.listeningTimeout = setTimeout(() => {
