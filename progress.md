@@ -2,6 +2,29 @@
 
 更新时间：2026-06-28 13:11:25 CST
 
+## TTS 长回复分段不中断修复
+
+更新时间：2026-07-01 CST
+
+- [x] 定位当前 `speakSentences()` 为“播放完一句再合成下一句”，播放完成回调或超时会阻塞后续分段合成。
+- [x] 增加服务端 `/api/tts/stream`，以 MiniMax `stream: true` 请求 TTS，并向客户端输出 chunked `audio/mpeg`。
+- [x] 服务端支持直接音频流透传，也支持从 SSE/NDJSON JSON 片段中提取 hex audio 后转 MP3 bytes。
+- [x] 客户端 `ttsService.speak()` 优先播放 `/api/tts/stream` URL，使单句音频不再等待完整合成后才开始播放。
+- [x] 保留旧整段 MiniMax 合成作为流式播放失败时的兜底。
+- [x] 增加 anti-regression 检查，避免 TTS 主链路回退为纯整段合成。
+- [x] 运行 pnpm 优先的聚焦验证：`pnpm exec tsc --noEmit`、`pnpm --dir server test`、`pnpm test`。
+
+## Server-side LLM -> TTS 编排迁移
+
+更新时间：2026-07-01 CST
+
+- [x] 调研业界方案，确认目标应从客户端按句 TTS 转向服务端 `LLM stream -> TTS stream` 编排。
+- [x] 审计当前 `.env`，确认现有 provider 只有 MiniMax HTTP TTS，未配置 ElevenLabs/Deepgram/Google 等增量文本 WebSocket TTS。
+- [ ] 将 LLM SSE 协议扩展为 `token` + `tts` + `done`，由 server 负责切句和发出音频入口。
+- [ ] 客户端移除本地句子切分/TTS 队列，改为消费 server 的 `tts` 事件播放。
+- [ ] 保留 MiniMax HTTP streaming 作为 provider v1；后续接入真正 WebSocket TTS 时只替换 server provider。
+- [ ] 运行 pnpm 优先验证。
+
 ## Device tools WebSocket 迁移
 
 更新时间：2026-06-30 CST

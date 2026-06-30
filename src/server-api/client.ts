@@ -83,6 +83,14 @@ async function* parseSSE(response: Response): AsyncGenerator<LLMStreamEvent> {
     if (eventName === "token") {
       return { type: "token", text: String(data.text ?? "") };
     }
+    if (eventName === "tts") {
+      const audioPath = String(data.audioPath ?? "");
+      return {
+        type: "tts",
+        text: String(data.text ?? ""),
+        audioUrl: audioPath.startsWith("http") ? audioPath : `${getServerUrl()}${audioPath}`,
+      };
+    }
     if (eventName === "done") {
       return {
         type: "done",

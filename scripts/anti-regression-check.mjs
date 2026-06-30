@@ -144,11 +144,23 @@ assertPresent("src/reminder/reminder-scheduler.ts", [
 ]);
 
 assertPresent("src/voice/tts.ts", [
+  /\/api\/tts\/stream/,
+  /playStreamingTts/,
+  /preferredForwardBufferDuration/,
+  /Streaming playback failed; falling back to buffered synthesis/,
   /BINARY_STRING_CHUNK_SIZE/,
   /bytes\.subarray/,
   /TTS_PLAYBACK_MAX_TIMEOUT_MS/,
   /Playback timeout/,
   /resolveOnce/,
+]);
+
+assertPresent("server/src/routes/tts.ts", [
+  /fastify\.get<[\s\S]+\/stream/,
+  /stream: true/,
+  /Content-Type": "audio\/mpeg"/,
+  /extractMiniMaxTtsAudioHex/,
+  /Buffer\.from\(audioHex, "hex"\)/,
 ]);
 
 assertPresent("server/src/routes/observe.ts", [

@@ -1,4 +1,5 @@
 import { createAudioPlayer, type AudioPlayer } from "expo-audio";
+import { getConfiguredServerUrl } from "../server-api/client";
 
 const MINIMAX_TTS_URL = "https://api.minimax.chat/v1/t2a_v2";
 const TTS_PLAYBACK_MIN_TIMEOUT_MS = 8_000;
@@ -9,6 +10,12 @@ interface TTSOptions {
   text: string;
   voiceId?: string;
   speed?: number;
+}
+
+interface TTSAudioUrlOptions {
+  text: string;
+  audioUrl: string;
+  onPlaybackStart?: () => void;
 }
 
 interface SpeakSentencesOptions extends Omit<TTSOptions, "text"> {
@@ -40,6 +47,50 @@ export class TTSService {
 
     // Stop any currently playing audio
     await this.stop();
+
+    try {
+      await this.playStreamingTts({
+        text,
+        voiceId,
+        speed,
+        onPlaybackStart: options.onPlaybackStart,
+      });
+      return;
+    } catch (error) {
+      this.isPlaying = false;
+      console.warn("[TTS] Streaming playback failed; falling back to buffered synthesis:", error);
+      await this.stop();
+    }
+
+    await this.speakBuffered({ text, voiceId, speed, onPlaybackStart: options.onPlaybackStart });
+  }
+
+  async speakAudioUrl(options: TTSAudioUrlOptions): Promise<void> {
+    const { text, audioUrl } = options;
+    if (!text.trim() || !audioUrl.trim()) return;
+
+    await this.stop();
+
+    const player = createAudioPlayer(
+      { uri: audioUrl },
+      {
+        updateInterval: 250,
+        preferredForwardBufferDuration: 0.2,
+      }
+    );
+
+    this.player = player;
+    this.isPlaying = true;
+    player.play();
+    options.onPlaybackStart?.();
+
+    return this.waitForPlaybackToFinish(player, text);
+  }
+
+  private async speakBuffered(
+    options: TTSOptions & { onPlaybackStart?: () => void }
+  ): Promise<void> {
+    const { text, voiceId = "male-qn-qingse", speed = 1.0 } = options;
 
     try {
       const response = await fetch(
@@ -112,37 +163,79 @@ export class TTSService {
       player.play();
       options.onPlaybackStart?.();
 
-      // Wait for playback to finish
-      return new Promise<void>((resolve) => {
-        let resolved = false;
-        const resolveOnce = () => {
-          if (resolved) return;
-          resolved = true;
-          clearInterval(interval);
-          clearTimeout(timeout);
-          this.isPlaying = false;
-          this.cleanup();
-          resolve();
-        };
-        const interval = setInterval(() => {
-          if (!player.playing && player.currentStatus.didJustFinish) {
-            resolveOnce();
-          }
-        }, 250);
-        const timeoutMs = Math.min(
-          TTS_PLAYBACK_MAX_TIMEOUT_MS,
-          Math.max(TTS_PLAYBACK_MIN_TIMEOUT_MS, text.length * 280)
-        );
-        const timeout = setTimeout(() => {
-          console.warn(`[TTS] Playback timeout after ${timeoutMs}ms`);
-          resolveOnce();
-        }, timeoutMs);
-      });
+      return this.waitForPlaybackToFinish(player, text);
     } catch (error) {
       this.isPlaying = false;
       console.error("[TTS] Error:", error);
       throw error;
     }
+  }
+
+  private async playStreamingTts(
+    options: TTSOptions & { onPlaybackStart?: () => void }
+  ): Promise<void> {
+    const { text, voiceId = "male-qn-qingse", speed = 1.0 } = options;
+    const params = new URLSearchParams({
+      text,
+      voiceId,
+      speed: String(speed),
+    });
+    const audioUri = `${getConfiguredServerUrl()}/api/tts/stream?${params.toString()}`;
+    const player = createAudioPlayer(
+      { uri: audioUri },
+      {
+        updateInterval: 250,
+        preferredForwardBufferDuration: 0.2,
+      }
+    );
+
+    this.player = player;
+    this.isPlaying = true;
+    player.play();
+    options.onPlaybackStart?.();
+
+    return this.waitForPlaybackToFinish(player, text);
+  }
+
+  private waitForPlaybackToFinish(player: AudioPlayer, text: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      let resolved = false;
+      const resolveOnce = () => {
+        if (resolved) return;
+        resolved = true;
+        clearInterval(interval);
+        clearTimeout(timeout);
+        this.isPlaying = false;
+        this.cleanup();
+        resolve();
+      };
+      const rejectOnce = (error: Error) => {
+        if (resolved) return;
+        resolved = true;
+        clearInterval(interval);
+        clearTimeout(timeout);
+        this.isPlaying = false;
+        this.cleanup();
+        reject(error);
+      };
+      const interval = setInterval(() => {
+        if (player.currentStatus.error) {
+          rejectOnce(new Error(player.currentStatus.error));
+          return;
+        }
+        if (!player.playing && player.currentStatus.didJustFinish) {
+          resolveOnce();
+        }
+      }, 250);
+      const timeoutMs = Math.min(
+        TTS_PLAYBACK_MAX_TIMEOUT_MS,
+        Math.max(TTS_PLAYBACK_MIN_TIMEOUT_MS, text.length * 280)
+      );
+      const timeout = setTimeout(() => {
+        console.warn(`[TTS] Playback timeout after ${timeoutMs}ms`);
+        resolveOnce();
+      }, timeoutMs);
+    });
   }
 
   async speakSentences(

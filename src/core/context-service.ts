@@ -80,6 +80,7 @@ export interface LLMService {
 
 export type LLMStreamEvent =
   | { type: "token"; text: string }
+  | { type: "tts"; text: string; audioUrl: string }
   | { type: "done"; fullText: string; evidenceUri?: string }
   | { type: "error"; message: string };
 

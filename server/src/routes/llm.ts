@@ -5,6 +5,8 @@ import { DefaultSessionService, type SessionService } from "../session/service.j
 
 export type UserIntent = "store" | "search" | "remind" | "chat";
 const STREAM_CONTEXT_MESSAGE_LIMIT = 6;
+const TTS_SENTENCE_MIN_CHARS = 6;
+const TTS_SENTENCE_MAX_CHARS = 48;
 
 /**
  * LLM routes — /api/llm/*
@@ -127,6 +129,7 @@ export function createLlmRoutes(
       transcript,
     });
     let fullText = "";
+    let ttsBuffer = "";
 
     reply.raw.writeHead(200, sseHeaders);
 
@@ -145,16 +148,25 @@ export function createLlmRoutes(
       for await (const event of stream) {
         if (isTextDeltaEvent(event)) {
           fullText += event.delta;
+          ttsBuffer += event.delta;
           writeSse(reply.raw, "token", { text: event.delta });
+          ttsBuffer = flushTtsSentences(ttsBuffer, (sentence) => {
+            writeSse(reply.raw, "tts", buildTtsEvent(sentence));
+          });
         }
       }
 
+      const tail = ttsBuffer.trim();
+      if (tail) {
+        writeSse(reply.raw, "tts", buildTtsEvent(tail));
+      }
       writeSse(reply.raw, "done", { fullText, evidenceUri: findEvidenceUri(facts) });
     } catch (error: any) {
       fastify.log.error(error, "Streaming response generation failed");
       if (!fullText) {
         fullText = getDefaultResponse(intent);
         writeSse(reply.raw, "token", { text: fullText });
+        writeSse(reply.raw, "tts", buildTtsEvent(fullText));
       }
       writeSse(reply.raw, "done", { fullText, error: error.message });
     } finally {
@@ -281,6 +293,60 @@ const sseHeaders = {
 function writeSse(raw: NodeJS.WritableStream, event: string, data: unknown): void {
   raw.write(`event: ${event}\n`);
   raw.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function buildTtsEvent(sentence: string): { text: string; audioPath: string } {
+  const params = new URLSearchParams({ text: sentence });
+  return {
+    text: sentence,
+    audioPath: `/api/tts/stream?${params.toString()}`,
+  };
+}
+
+export function flushTtsSentences(buffer: string, emit: (sentence: string) => void): string {
+  let remaining = buffer;
+
+  while (remaining.length > 0) {
+    const splitIndex = findTtsSentenceSplitIndex(remaining);
+    if (splitIndex < 0) {
+      break;
+    }
+
+    const sentence = remaining.slice(0, splitIndex + 1).trim();
+    remaining = remaining.slice(splitIndex + 1);
+    if (sentence) {
+      emit(sentence);
+    }
+  }
+
+  if (remaining.length > TTS_SENTENCE_MAX_CHARS) {
+    const sentence = remaining.slice(0, TTS_SENTENCE_MAX_CHARS).trim();
+    remaining = remaining.slice(TTS_SENTENCE_MAX_CHARS);
+    if (sentence) {
+      emit(sentence);
+    }
+  }
+
+  return remaining;
+}
+
+function findTtsSentenceSplitIndex(text: string): number {
+  const punctuationIndex = text.search(/[。！？!?；;]/);
+  if (punctuationIndex >= TTS_SENTENCE_MIN_CHARS - 1) {
+    return punctuationIndex;
+  }
+
+  if (text.length < TTS_SENTENCE_MAX_CHARS) {
+    return -1;
+  }
+
+  const softSplit = Math.max(
+    text.lastIndexOf("，", TTS_SENTENCE_MAX_CHARS),
+    text.lastIndexOf(",", TTS_SENTENCE_MAX_CHARS),
+    text.lastIndexOf("、", TTS_SENTENCE_MAX_CHARS),
+    text.lastIndexOf(" ", TTS_SENTENCE_MAX_CHARS)
+  );
+  return softSplit >= TTS_SENTENCE_MIN_CHARS - 1 ? softSplit : TTS_SENTENCE_MAX_CHARS - 1;
 }
 
 function isTextDeltaEvent(event: AssistantMessageEvent): event is Extract<

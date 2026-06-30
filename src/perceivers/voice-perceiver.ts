@@ -22,8 +22,6 @@ const ENDPOINT_WAIT_MS = 2000;
 const WAKEWORD_AUDIO_PREROLL_MS = 1000;
 const SPEAKER_SAMPLE_RATE = 16000;
 const SPEAKER_SEGMENT_PADDING_SAMPLES = Math.round(SPEAKER_SAMPLE_RATE * 0.25);
-const SENTENCE_BREAK_RE = /[。！？!?\n、]/;
-const MAX_STREAMING_SENTENCE_LENGTH = 20;
 const WAKEWORD_TRANSCRIPT_PREFIX_RE =
   /^(?:嘿|嗨|黑)?(?:魔戈|魔哥|摩哥|moge|hey\s*moge)[，,。.!！?？\s]*/i;
 
@@ -38,20 +36,24 @@ type SampleRange = {
   end: number;
 };
 
-class AsyncSentenceQueue implements AsyncIterable<string> {
-  private queue: string[] = [];
-  private resolvers: Array<(value: IteratorResult<string>) => void> = [];
+type TtsStreamItem = {
+  text: string;
+  audioUrl: string;
+};
+
+class AsyncTtsQueue implements AsyncIterable<TtsStreamItem> {
+  private queue: TtsStreamItem[] = [];
+  private resolvers: Array<(value: IteratorResult<TtsStreamItem>) => void> = [];
   private closed = false;
 
-  push(sentence: string): void {
-    const text = sentence.trim();
-    if (!text || this.closed) return;
+  push(item: TtsStreamItem): void {
+    if (!item.text.trim() || !item.audioUrl.trim() || this.closed) return;
 
     const resolver = this.resolvers.shift();
     if (resolver) {
-      resolver({ value: text, done: false });
+      resolver({ value: item, done: false });
     } else {
-      this.queue.push(text);
+      this.queue.push(item);
     }
   }
 
@@ -62,10 +64,10 @@ class AsyncSentenceQueue implements AsyncIterable<string> {
     }
   }
 
-  async next(): Promise<IteratorResult<string>> {
-    const sentence = this.queue.shift();
-    if (sentence) {
-      return { value: sentence, done: false };
+  async next(): Promise<IteratorResult<TtsStreamItem>> {
+    const item = this.queue.shift();
+    if (item) {
+      return { value: item, done: false };
     }
 
     if (this.closed) {
@@ -77,7 +79,7 @@ class AsyncSentenceQueue implements AsyncIterable<string> {
     });
   }
 
-  [Symbol.asyncIterator](): AsyncIterator<string> {
+  [Symbol.asyncIterator](): AsyncIterator<TtsStreamItem> {
     return this;
   }
 }
